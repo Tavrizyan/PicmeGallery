@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+.vs/
+*.user
+appsettings.Local.json
+local.settings.json
+.env*
+artifacts/
+TestResults/
+node_modules/

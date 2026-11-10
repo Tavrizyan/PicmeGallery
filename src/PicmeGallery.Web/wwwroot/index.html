@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+  <title>Your photos · PICME</title>
+  <link rel="stylesheet" href="/gallery.css"><script src="/gallery.js" defer></script>
+</head>
+<body>
+  <header class="site-header"><a class="wordmark" href="/" aria-label="PICME home">PICME<span>✳</span></a><span class="header-note">A moment, kept.</span></header>
+  <main>
+    <section class="intro"><p class="eyebrow">YOUR PHOTOBOOTH MOMENT</p><h1>Good times.<br><em>Yours to keep.</em></h1><p id="status" role="status" aria-live="polite">Opening your photos…</p><button id="refresh" type="button" hidden>Check for photos <span aria-hidden="true">↗</span></button></section>
+    <section id="final-section" class="final-section" hidden aria-labelledby="final-title"><div class="section-heading"><div><p class="eyebrow">THE ONE FROM YOUR PRINT</p><h2 id="final-title">Your photo strip</h2></div><a id="download-final" class="button">Download image <span aria-hidden="true">↓</span></a></div><div class="print-stage"><img id="final-image" alt="Your finished photobooth template"></div></section>
+    <section id="originals-section" hidden aria-labelledby="originals-title"><div class="section-heading"><div><p class="eyebrow">EVERY FRAME THAT MADE IT</p><h2 id="originals-title">The original moments</h2></div><span id="photo-count" class="count"></span></div><div id="originals" class="photo-grid"></div></section>
+    <section id="waiting" class="waiting"><span class="waiting-symbol" aria-hidden="true">✳</span><h2 id="waiting-title">A little moment…</h2><p id="waiting-detail">Your photos may still be uploading from the booth. Keep this page open, or scan your print again later.</p></section>
+    <p class="keep-note">Keep your print. Your QR brings you back to these photos.</p>
+  </main>
+  <footer><span class="wordmark small">PICME<span>✳</span></span><span>Made for the moments between poses.</span></footer>
+</body>
+</html>
