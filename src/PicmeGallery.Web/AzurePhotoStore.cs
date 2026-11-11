@@ -49,15 +49,22 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore
     public async Task<PhotoAsset?> GetAsync(string hash, string id, CancellationToken token)
     {
         if (!GalleryContract.ValidAssetId(id)) return null;
-        var blob = Container().GetBlobClient(GalleryContract.BlobName(hash, id));
-        try
+        var container = Container();
+        string[] names = id == "final" ? [GalleryContract.BlobName(hash, id), "sessions/" + hash + "/final.gif"] : [GalleryContract.BlobName(hash, id)];
+        foreach (string name in names)
         {
-            var properties = (await blob.GetPropertiesAsync(cancellationToken: token)).Value;
-            var tags = (await blob.GetTagsAsync(cancellationToken: token)).Value.Tags;
-            return GalleryContract.Parse(hash, id, properties.ContentLength, properties.ContentType,
-                properties.AccessTier?.ToString(), tags, properties.Metadata);
+            var blob = container.GetBlobClient(name);
+            try
+            {
+                var properties = (await blob.GetPropertiesAsync(cancellationToken: token)).Value;
+                var tags = (await blob.GetTagsAsync(cancellationToken: token)).Value.Tags;
+                var asset = GalleryContract.Parse(hash, id, properties.ContentLength, properties.ContentType,
+                    properties.AccessTier?.ToString(), tags, properties.Metadata);
+                return asset?.BlobName == name ? asset : null;
+            }
+            catch (RequestFailedException error) when (error.Status == 404) { }
         }
-        catch (RequestFailedException error) when (error.Status == 404) { return null; }
+        return null;
     }
     public Uri DownloadUrl(PhotoAsset asset, bool attachment)
     {
@@ -67,7 +74,7 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore
         {
             Protocol = SasProtocol.Https, CacheControl = "private, no-store",
             ContentDisposition = (attachment ? "attachment" : "inline") + "; filename=\"picme-" +
-                (asset.Id == "final" ? "final.jpg" : "original-" + asset.Id) + "\""
+                (asset.Id == "final" ? Path.GetFileName(asset.BlobName) : "original-" + asset.Id) + "\""
         };
         return blob.GenerateSasUri(sas);
     }

@@ -24,7 +24,7 @@ public static partial class GalleryContract
     {
         bool final = id == "final";
         if (!ValidAssetId(id) || bytes <= 0 || accessTier != "Cold" ||
-            (contentType != "image/jpeg" && contentType != "image/png") ||
+            (contentType != "image/jpeg" && contentType != "image/png" && !(final && contentType == "image/gif")) ||
             !tags.TryGetValue("GuestKeyHash", out var value) || value != hash ||
             !tags.TryGetValue("EventId", out var eventId) || !EventFormat().IsMatch(eventId) ||
             !tags.TryGetValue("Kind", out var kind) || kind != (final ? "Final" : "Original") ||
@@ -36,7 +36,7 @@ public static partial class GalleryContract
             !int.TryParse(indexText, NumberStyles.None, CultureInfo.InvariantCulture, out int index) ||
             (final ? index != 0 : index < 1 || index > count || id[..3] != index.ToString("000", CultureInfo.InvariantCulture))) return null;
         metadata.TryGetValue("capturetimeutc", out string? captured);
-        return new PhotoAsset(id, BlobName(hash, id), eventId, bytes, index, count, captured);
+        return new PhotoAsset(id, final && contentType == "image/gif" ? "sessions/" + hash + "/final.gif" : BlobName(hash, id), eventId, bytes, index, count, captured);
     }
     [GeneratedRegex("\\A[A-Za-z0-9_-]{43}\\z", RegexOptions.CultureInvariant)] private static partial Regex TokenFormat();
     [GeneratedRegex("\\A[a-z0-9][a-z0-9_-]{0,63}\\z", RegexOptions.CultureInvariant)] private static partial Regex EventFormat();

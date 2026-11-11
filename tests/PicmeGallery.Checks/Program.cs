@@ -30,6 +30,8 @@ internal static class Checks
         var metadata = new Dictionary<string, string> { ["schemaversion"] = "1", ["contentsha256"] = new string('a', 64), ["originalindex"] = "0", ["expectedoriginalcount"] = "2", ["capturetimeutc"] = "2020-01-01T00:00:00Z" };
         var asset = GalleryContract.Parse(hash, "final", 120, "image/jpeg", "Cold", tags, metadata);
         Check(asset is not null, "Valid Cold upload contract is accepted");
+        var gifAsset = GalleryContract.Parse(hash, "final", 120, "image/gif", "Cold", tags, metadata);
+        Check(gifAsset is not null && gifAsset.BlobName.EndsWith("/final.gif"), "GIF sessions resolve their original animated final");
         Check(asset!.CapturedUtc!.StartsWith("2020"), "Old captures do not expire");
         var signingConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -41,6 +43,8 @@ internal static class Checks
         Check(parameters["sp"] == "r" && parameters["spr"] == "https" && parameters["sr"] == "b", "Real Azure signer grants only HTTPS reads of one blob");
         Check(DateTimeOffset.Parse(parameters["se"]!) < DateTimeOffset.UtcNow.AddMinutes(6) && signed.AbsolutePath.EndsWith("/final.jpg"), "Storage URLs are short-lived and file-specific");
         Check(!signed.AbsoluteUri.Contains(token) && parameters["rscd"].ToString().StartsWith("attachment"), "Signed downloads do not reveal the guest bearer token");
+        Uri gifSigned = new AzurePhotoStore(signingConfiguration).DownloadUrl(gifAsset!, true);
+        Check(gifSigned.AbsolutePath.EndsWith("/final.gif") && QueryHelpers.ParseQuery(gifSigned.Query)["rscd"].ToString().Contains("final.gif"), "GIF downloads preserve animated file names");
         Check(GalleryContract.Parse(new string('0', 64), "final", 120, "image/jpeg", "Cold", tags, metadata) is null, "Another guest's tags rejected");
         Check(GalleryContract.Parse(hash, "final", 120, "text/html", "Cold", tags, metadata) is null, "Non-image content rejected");
         Check(GalleryContract.Parse(hash, "final", 120, "image/jpeg", "Archive", tags, metadata) is null, "Archived files not represented as ready");

@@ -2,6 +2,15 @@
 
 Private photobooth downloads backed directly by Azure Blob Storage **Cold** blobs and index tags. No database, album registry, guest accounts, or booth-to-gallery API. Existing `Picme.am` is unrelated and remains untouched.
 
+## Project documentation
+
+Start with the [documentation index](docs/README.md):
+
+- [Purpose, architecture, decisions, and storage/API contract](docs/architecture.md)
+- [Local setup, Azure deployment, and Cloudflare domain setup](docs/deployment.md)
+- [Verification, troubleshooting, retention, and maintenance](docs/operations.md)
+- [Deployment record template](docs/deployment-record.example.md) for actual resource names and rollout results
+
 ## Run locally
 
 Install the .NET 10 SDK, then configure **server-side** environment variables (do not commit them):
@@ -27,7 +36,7 @@ Checks use a fake store for HTTP access isolation, waiting/partial/ready states,
 The booth generates a permanent 32-byte random Base64URL token. `GuestKeyHash` is lowercase hex SHA-256 of the token's UTF-8 text. The raw token is not uploaded into blob names/tags.
 
 ```
-sessions/{guestKeyHash}/final.jpg
+sessions/{guestKeyHash}/final.jpg (or final.gif for an animated session)
 sessions/{guestKeyHash}/originals/001.jpg
 sessions/{guestKeyHash}/originals/002.png
 ```
@@ -56,3 +65,5 @@ Azure Functions was discussed as an alternative, but this initial implementation
 - Do not cache guest APIs, private pages, or SAS redirects at a shared edge. Static CSS/JS can be hosted normally.
 - Preserve the hostname/route and blob key/tag contract across deployments; there is no mapping database to migrate.
 - Owner/event links, resizing, media deletion and account administration are intentionally later phases.
+
+The final may be an animated GIF (`image/gif`, `final.gif`). The same permanent `/p/{accessToken}` route displays and downloads it without converting its bytes. Finals are looked up by their deterministic JPEG/GIF name while original access checks remain unchanged. Deploy this gallery update with deferred GIF uploads in PicmeBooth.
