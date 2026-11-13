@@ -8,6 +8,9 @@ Maintainer reference, updated 2026-11-12. These documents preserve the requireme
 | [Deployment](deployment.md) | Configure real Azure storage, run locally, publish to Azure App Service F1, and serve the public hostname through Cloudflare. |
 | [Operations](operations.md) | Validate a rollout, diagnose failures, retain printed links, rotate credentials, and maintain the application. |
 | [Deployment record template](deployment-record.example.md) | Record the verified environment, public/origin addresses, deployed revisions, and rollout checks without storing secrets. |
+| [Current deployment record](deployment-record.md) | Verified hosting/storage resources, region selection, and remaining setup. |
+| [Work state / laptop handoff](work-state.md) | Resume the unfinished deployment with verified identities, approvals, local changes, checks, and next steps. |
+| [Deployment documentation audit](deployment-audit.md) | Verified requirements, remaining configuration gaps, and rollout checks that have not passed yet. |
 
 ## Project identity
 
@@ -20,11 +23,11 @@ Maintainer reference, updated 2026-11-12. These documents preserve the requireme
 - Persistent photo storage: private Azure Blob Storage, with explicit Cold-tier uploads by PicmeBooth.
 - Application database: none. The gallery does not store an album registry or a token-to-session mapping.
 
-The public hostname is a proposed/configured address, not evidence that a deployment is live. Azure resource names, subscription, storage account, and production rollout results have not been recorded here. Populate a deployment record after checking the actual environment.
+The public hostname is a proposed/configured address, not evidence that a deployment is live. The [current deployment record](deployment-record.md) documents the verified subscription, hosting, and storage resources; application deployment and live rollout checks remain pending.
 
 ## Scope and implementation status
 
-The repository contains the guest gallery, Azure read/signing logic, a Cloudflare proxy, automated checks, and a publish workflow. The GitHub Actions workflow builds/checks the application; it does not deploy Azure resources or publish the Worker.
+The repository contains the guest gallery, Azure read/signing logic, a Cloudflare proxy, automated checks, and a deployment workflow. After the one-time resource/authentication setup in the [deployment guide](deployment.md#github-actions-deployment), successful pushes to `main` deploy the checked application to Azure and publish the Worker. The workflow does not provision Azure resources.
 
 The current local integration work also supports animated final GIFs. Deploy the matching booth/gallery revisions together and verify the published revision before relying on GIF sessions. The [storage contract](architecture.md#storage-contract-version-1) describes both JPEG and GIF finals.
 

@@ -8,3 +8,5 @@ local.settings.json
 artifacts/
 TestResults/
 node_modules/
+cloudflare/wrangler.jsonc
+cloudflare/.wrangler/

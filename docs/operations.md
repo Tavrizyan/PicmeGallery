@@ -63,7 +63,7 @@ Use Azure's supported key-rotation process, maintaining a usable credential whil
 - Run the gallery/proxy checks and `dotnet publish` after application changes. For documentation-only updates, validate document links and commands against the repository rather than inventing new implementation tests.
 - Deploy the UI and API together. If changing media formats, schema, token/hash computation, filenames, or tag semantics, update the booth and gallery compatibly. Preserve reads for already printed sessions.
 - Keep the previous published application package and Worker configuration/revision for rollback. Restore the origin/configuration or redeploy the compatible package; do not delete media to undo a code rollout.
-- The current CI builds/checks/publishes output only. Automatic deployment, infrastructure as code, owner galleries, image optimization, and cleanup are separate future changes.
+- CI checks and publishes output, then automatically deploys successful pushes to `main` through the `gallery` environment once configured. See [GitHub Actions deployment](deployment.md#github-actions-deployment) for settings, partial failures, and artifact retention. Infrastructure as code, owner galleries, image optimization, and cleanup remain future changes.
 
 ## Deployment inventory
 

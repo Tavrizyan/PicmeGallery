@@ -12,6 +12,53 @@ This is an operator guide, not a statement that resources have already been crea
 
 F1 is a development/testing starting point with resource quotas, not an always-on service guarantee. Check the current plan/runtime availability for the selected OS and region in Azure. Microsoft's [ASP.NET Core quickstart](https://learn.microsoft.com/en-us/azure/app-service/quickstart-dotnetcore) documents the Web App setup.
 
+## GitHub Actions deployment
+
+The [workflow](../.github/workflows/checks.yml) runs gallery and proxy checks and publishes the application on pushes and pull requests. A successful **push to `main`** also retains the publish artifact for 30 days, deploys that same artifact to Azure, checks origin liveness, deploys the Cloudflare Worker, and checks public liveness. Pull requests and other branches do not deploy. Runs for the same ref are serialized so deployments cannot overlap.
+
+### One-time resource setup
+
+1. Prepare the private storage account/container as described in section 2. Source media must remain private, online, and retained.
+2. Create a **separate** Azure Web App using Code, .NET 10, and an F1 plan where supported. Choose and record its OS and region. For Linux, set the startup command to `dotnet PicmeGallery.Web.dll` if needed. Keep HTTPS enabled. Configure the two storage app settings from section 3 privately in Azure; GitHub does not need the storage connection string. Do not enable an additional generated deployment workflow in Deployment Center.
+3. Create a GitHub environment named **`gallery`** under repository Settings → Environments. Restrict deployment branches to `main`. Leave required reviewers disabled for automatic releases. If this repository's GitHub plan does not support the environment/protection settings, resolve that before configuring federation; the subject below depends on the environment name.
+4. Register a Microsoft Entra application for GitHub deployment. Assign its service principal **Website Contributor** scoped to this Web App, rather than the subscription. Add a GitHub Actions federated credential for repository `Tavrizyan/PicmeGallery`, entity type **Environment**, name **`gallery`**:
+
+   ```text
+   Issuer:   https://token.actions.githubusercontent.com
+   Subject:  repo:Tavrizyan/PicmeGallery:environment:gallery
+   Audience: api://AzureADTokenExchange
+   ```
+
+   Use the application/client ID, tenant ID, and subscription ID for the GitHub settings below. No client secret or publish profile is needed. See Microsoft's [OIDC deployment instructions](https://learn.microsoft.com/en-us/azure/app-service/deploy-github-actions). A branch-based federated subject will not match this environment-based job.
+5. Ensure the `picme.am` zone is active in the intended Cloudflare account and available for a Worker Custom Domain on `photos.picme.am`. Review any existing record for that subdomain before changing it; preserve root/www routing. Create a Cloudflare API token using **Edit Cloudflare Workers**, restricted to the intended account and zone, with permission to deploy the Worker and manage its Custom Domain. See [Cloudflare's GitHub Actions guide](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/) and [Workers permissions](https://developers.cloudflare.com/workers/authorization/workers/).
+6. Populate the `gallery` environment settings below **before pushing the workflow to `main`**. The first successful main run will publish the Worker and attach its Custom Domain; confirm that rollout is authorized before pushing.
+
+### GitHub environment settings
+
+Under Settings → Environments → `gallery`, add:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Variable | `AZURE_WEBAPP_NAME` | Exact gallery Web App resource name. |
+| Variable | `AZURE_ORIGIN` | Assigned origin, e.g. `https://<assigned-host>.azurewebsites.net/`; copy it from Azure rather than constructing it from the app name. |
+| Secret | `AZURE_CLIENT_ID` | Entra application/client ID. |
+| Secret | `AZURE_TENANT_ID` | Entra directory/tenant ID. |
+| Secret | `AZURE_SUBSCRIPTION_ID` | Subscription containing the Web App. |
+| Secret | `CLOUDFLARE_ACCOUNT_ID` | Account containing the `picme.am` zone. |
+| Secret | `CLOUDFLARE_API_TOKEN` | Scoped deployment token; enter privately in GitHub. |
+
+The workflow generates `cloudflare/wrangler.jsonc` from the checked-in example and injects `AZURE_ORIGIN`. The example controls the Worker name, public domain, compatibility date, and disabled request observability. Generated local config and Wrangler state are Git-ignored. Azure storage credentials belong only in the Web App's app settings and the booth's protected settings.
+
+### First rollout and recovery
+
+After reviewing the workflow and setting up resources/authentication, push the approved revision to `main`. Open GitHub Actions → **Gallery checks and deployment** and inspect both jobs. Re-run a failed deployment only after resolving its cause; rebuilding is not required to re-run the failed deploy job while its artifact remains available.
+
+The two liveness probes verify the gallery response, but do not access storage. Complete section 7 and the [live rollout checklist](operations.md#rollout-checklist) with a retained booth session before issuing prints. First-time DNS/certificate provisioning may outlast the public probe's retries; verify provisioning and rerun the failed job if necessary.
+
+Azure and Cloudflare deployment are sequential, not atomic. If the Worker deployment fails, Azure may already be updated. There is no automatic rollback. Keep the previous successful run/artifact and Worker revision for recovery; redeploy a reviewed compatible package and Worker configuration when needed. Retain a longer-lived copy of a known-good artifact if recovery must extend beyond GitHub's 30-day retention. Record resource names, deployed commit, Worker revision, and live check results using the [deployment record](deployment-record.example.md).
+
+The remaining sections also document local verification and manual deployment as an operator fallback.
+
 ## 2. Prepare Azure Blob Storage
 
 1. Create or select a standard general-purpose v2 storage account that supports Cold block blobs and blob index tags. A standard LRS account is one possible initial configuration; choose the redundancy and region for the actual retention requirements.
@@ -88,7 +135,7 @@ For a Linux app that needs an explicit startup command, use `dotnet PicmeGallery
 4. Visit `https://<assigned-host>.azurewebsites.net/health`, then test a real uploaded session at `/p/{token}` on that origin. Verify both previews and downloads, not just the landing page.
 5. Record the deployed commit and successful checks in a [deployment record](deployment-record.example.md).
 
-Azure app settings are supplied as environment variables and changing them restarts the app. Follow Microsoft's [configuration guide](https://learn.microsoft.com/en-us/azure/app-service/configure-common) for the current portal controls. This repository's GitHub Actions workflow checks and publishes build output; it does not currently perform the deployment above.
+Azure app settings are supplied as environment variables and changing them restarts the app. Follow Microsoft's [configuration guide](https://learn.microsoft.com/en-us/azure/app-service/configure-common) for the current portal controls. With GitHub Actions configured above, the workflow deploys the checked publish output automatically; the CLI command is a manual fallback.
 
 ## 6. Configure `photos.picme.am` through Cloudflare
 

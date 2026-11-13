@@ -1,7 +1,10 @@
-name: Gallery checks
+name: Gallery checks and deployment
 on: [push, pull_request]
 permissions:
   contents: read
+concurrency:
+  group: gallery-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -16,3 +19,79 @@ jobs:
           node-version: '22'
       - run: node --test tests/worker-checks.mjs
       - run: dotnet publish src/PicmeGallery.Web -c Release -o artifacts/publish
+      - name: Reject local configuration in publish output
+        run: |
+          if find artifacts/publish -type f \( -name 'appsettings.Local.json' -o -name 'local.settings.json' -o -name '.env*' \) | grep -q .; then
+            echo 'Local configuration must not be included in deployment artifacts.' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: gallery-${{ github.sha }}
+          path: artifacts/publish/
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: gallery
+      url: https://photos.picme.am
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+      AZURE_ORIGIN: ${{ vars.AZURE_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare Worker configuration
+        run: |
+          test -n "$AZURE_WEBAPP_NAME"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const origin = new URL(process.env.AZURE_ORIGIN);
+          if (origin.protocol !== 'https:' || !origin.hostname.endsWith('.azurewebsites.net') ||
+              origin.pathname !== '/' || origin.username || origin.password || origin.search || origin.hash || origin.port) {
+            throw new Error('AZURE_ORIGIN must be the assigned Azure HTTPS origin.');
+          }
+          const config = JSON.parse(fs.readFileSync('cloudflare/wrangler.example.jsonc', 'utf8'));
+          config.vars.AZURE_ORIGIN = origin.href;
+          fs.writeFileSync('cloudflare/wrangler.jsonc', JSON.stringify(config, null, 2));
+          NODE
+      - uses: actions/download-artifact@v4
+        with:
+          name: gallery-${{ github.sha }}
+          path: artifacts/publish
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy gallery
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: artifacts/publish
+      - name: Check Azure liveness
+        run: |
+          curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors --max-time 15 \
+            "${AZURE_ORIGIN%/}/health" | jq -e '.service == "PicmeGallery" and .status == "running"'
+      - name: Deploy public proxy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare
+          command: deploy --config wrangler.jsonc
+      - name: Check public liveness
+        run: |
+          curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors --max-time 15 \
+            https://photos.picme.am/health | jq -e '.service == "PicmeGallery" and .status == "running"'
