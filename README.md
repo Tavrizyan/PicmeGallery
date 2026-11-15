@@ -1,6 +1,6 @@
 # PicmeGallery
 
-Private photobooth downloads backed directly by Azure Blob Storage **Cold** blobs and index tags. No database, album registry, guest accounts, or booth-to-gallery API. Existing `Picme.am` is unrelated and remains untouched.
+Private photobooth downloads backed directly by Azure Blob Storage **Cold** blobs and index tags. No database, guest accounts, or booth-to-gallery API. Admin-managed event links use small private Azure blob records. Existing `Picme.am` is unrelated and remains untouched.
 
 ## Project documentation
 
@@ -43,6 +43,36 @@ File sharing requires HTTPS (localhost works for development) and browser suppor
 
 With the local app on port 5078, `tests/gallery-browser-checks.js` can be run through the Playwright `browser_run_code` tool’s `filename` input. It mocks private API/media responses and native sharing, checking responsive layouts, previews, keyboard navigation, focus restoration, sorting, refresh, file activation, cancellation, failures, GIFs, and waiting/partial/retry states. It writes temporary screenshots under `/tmp`. Before rollout, verify **Save Image** on an actual iPhone in Safari and the download/share choices on an actual Android phone over HTTPS, including GIFs and in-app QR browsers.
 
+## Admin and event-owner galleries
+
+Open `/admin` to manage event links. Set **server-side Azure App Service application settings** before signing in:
+
+| Setting | Value |
+| --- | --- |
+| `Admin__Username` | Your administrator username. No default. |
+| `Admin__Password` | Your administrator password. No default. |
+| `Admin__DataProtectionKeysPath` | A persistent, private key-ring directory; use `/home/data/picme-gallery-keys` on Linux App Service with persistent App Service storage enabled. Keep this directory across deployments. |
+
+The login form uses HTTPS, an eight-hour secure HttpOnly session cookie, CSRF protection, and a limit of ten login attempts per minute per server-observed client IP. Missing credentials disable login; changing either configured credential invalidates existing admin sessions. No credentials are shipped to the browser. Behind Cloudflare, several users may share a server-observed IP and the login-attempt budget.
+
+Create an event using the **exact Event ID configured in the booth** and a display name, then copy its owner link. Existing uploaded photos with that Event ID are included; no booth changes or re-upload are required. Use a distinct Event ID for each separate event. The event list supports copying, opening, replacing, and revoking links. Replacement/revocation requires confirmation and uses optimistic concurrency to avoid overwriting another admin tab’s change.
+
+The organizer opens `/e/{ownerToken}` without signing in. The grid displays **finals only**. Preview opens the finished print or animated GIF; **Final** downloads it; **All photos** opens the session’s final and originals using the existing phone-save viewer. **Download all photos (.zip)** streams every available final and original across all pages, grouped into session folders. It does not load the complete archive into server memory or create a stored ZIP. Two archive requests may run concurrently per app instance; large events remain subject to Azure/Cloudflare request duration, bandwidth, and F1 quotas. Interrupted archives must be downloaded again. Photos still uploading are included only when available at the time each session is read.
+
+Finals are discovered via the `EventId` / `Kind=Final` Azure tag index in pages of 24. This index is eventually consistent: recently uploaded finals may appear after a delay. The page loads one page initially and offers **Load more moments**; while the tab is visible it scans all event pages for new sessions every minute. Manual refresh also scans all pages. Session counts describe loaded moments, not a separately maintained total. There is no resized-thumbnail service; the browser lazily loads original final images.
+
+Event access records live in the existing private container under `gallery/events/{eventId}.json`, with hashed-token lookups under `gallery/access/{tokenHash}.json`. They use **Hot** tier for small mutable records; photo blobs remain Cold. The gallery’s Azure credential now also needs permission to read/write these records. The stored owner token is encrypted with ASP.NET Core Data Protection so an authenticated administrator can copy the link again; restoring that capability requires preserving the key ring. If keys are lost, existing owner tokens still validate by hash, but the administrator must replace a link to copy a new one. Old lookup blobs can remain after replacement/revocation; the current event record always decides access.
+
+Owner links grant read access to one event’s photos. Replacing or revoking a link rejects subsequent gallery, session, media, and ZIP requests; already downloaded files cannot be recalled, in-progress requests may finish, and previously issued media SAS URLs can remain valid for up to five minutes. Guest print links remain independent.
+
+For local admin development, use HTTPS:
+
+```text
+dotnet run --project src/PicmeGallery.Web --no-launch-profile --urls "https://localhost:5079;http://localhost:5078"
+```
+
+Supply the admin/storage settings privately through your environment or ignored `appsettings.Local.json`; do not commit real credentials. `dotnet run --project tests/PicmeGallery.Checks` includes admin login/CSRF/rate limiting, scoped event access, replace/revoke, and ZIP-content checks with fake storage. `tests/event-browser-checks.js` runs through the Playwright browser tool’s `filename` input against port 5079, with mocked admin/event APIs. It covers login/logout, event management, responsive owner/admin pages, final-only pagination, original-session navigation, and revoked links. A real Azure read/write/tag-index and HTTPS deployment check remains necessary.
+
 ## Blob contract, version 1
 
 The booth generates a permanent 32-byte random Base64URL token. `GuestKeyHash` is lowercase hex SHA-256 of the token's UTF-8 text. The raw token is not uploaded into blob names/tags.
@@ -76,6 +106,6 @@ Azure Functions was discussed as an alternative, but this initial implementation
 - Keep token-bearing paths out of Cloudflare/application logs. ASP.NET request information logs are disabled in the supplied configuration.
 - Do not cache guest APIs, private pages, or SAS redirects at a shared edge. Static CSS/JS can be hosted normally.
 - Preserve the hostname/route and blob key/tag contract across deployments; there is no mapping database to migrate.
-- Owner/event links, resizing, media deletion and account administration are intentionally later phases.
+- Resizing, media deletion, event deletion and multiple administrator accounts are intentionally later phases.
 
 The final may be an animated GIF (`image/gif`, `final.gif`). The same permanent `/p/{accessToken}` route displays and downloads it without converting its bytes. Finals are looked up by their deterministic JPEG/GIF name while original access checks remain unchanged. Deploy this gallery update with deferred GIF uploads in PicmeBooth.

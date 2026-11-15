@@ -5,18 +5,9 @@ using Azure.Storage.Sas;
 
 namespace PicmeGallery.Web;
 
-public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore
+public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore, IEventPhotoStore
 {
-    private BlobContainerClient Container()
-    {
-        string? connection = configuration["Azure:ConnectionString"], name = configuration["Azure:Container"];
-        if (string.IsNullOrWhiteSpace(connection) || string.IsNullOrWhiteSpace(name)) throw new InvalidOperationException("Azure storage has not been configured.");
-        var options = new BlobClientOptions();
-        options.Retry.MaxRetries = 1; options.Retry.NetworkTimeout = TimeSpan.FromSeconds(15);
-        var container = new BlobServiceClient(connection, options).GetBlobContainerClient(name);
-        if (container.Uri.Scheme != "https") throw new InvalidOperationException("Azure requires HTTPS.");
-        return container;
-    }
+    private BlobContainerClient Container() => BlobStorage.Container(configuration);
     public async Task<GuestPhotos> FindAsync(string hash, CancellationToken token)
     {
         var container = Container();
@@ -65,6 +56,24 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore
             catch (RequestFailedException error) when (error.Status == 404) { }
         }
         return null;
+    }
+    public async Task<EventPhotoPage> ListFinalsAsync(string eventId, string? continuation, CancellationToken cancellation)
+    {
+        if (!GalleryContract.ValidEventId(eventId)) throw new ArgumentException("Invalid event ID.");
+        var container = Container();
+        await foreach (var page in container.FindBlobsByTagsAsync($"\"EventId\" = '{eventId}' AND \"Kind\" = 'Final'", cancellation).AsPages(continuation, 24))
+        {
+            var sessions = new Dictionary<string, EventFinal>();
+            foreach (var candidate in page.Values)
+            {
+                var parts = candidate.BlobName.Split('/');
+                if (parts.Length != 3 || parts[0] != "sessions" || !GalleryContract.ValidHash(parts[1]) || parts[2] is not ("final.jpg" or "final.gif")) continue;
+                var photo = await GetAsync(parts[1], "final", cancellation);
+                if (photo?.EventId == eventId) sessions[parts[1]] = new(parts[1], photo);
+            }
+            return new(sessions.Values.ToArray(), page.ContinuationToken);
+        }
+        return new([], null);
     }
     public async Task<Stream> OpenReadAsync(PhotoAsset asset, CancellationToken token)
     {

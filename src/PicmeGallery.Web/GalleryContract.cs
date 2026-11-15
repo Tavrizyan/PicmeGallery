@@ -17,6 +17,8 @@ public static partial class GalleryContract
         }
         catch (FormatException) { return null; }
     }
+    public static bool ValidEventId(string eventId) => EventFormat().IsMatch(eventId);
+    public static bool ValidHash(string hash) => HashFormat().IsMatch(hash);
     public static bool ValidAssetId(string id) => id == "final" || OriginalId().IsMatch(id);
     public static string BlobName(string hash, string id) => "sessions/" + hash + "/" + (id == "final" ? "final.jpg" : "originals/" + id);
     public static PhotoAsset? Parse(string hash, string id, long bytes, string? contentType,

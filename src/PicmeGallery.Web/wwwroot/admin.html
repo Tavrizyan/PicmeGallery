@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#251b62">
+  <title>Event administration · PICME</title>
+  <link rel="icon" type="image/png" href="/brand/favicon-32x32.png"><link rel="apple-touch-icon" href="/brand/apple-touch-icon-152x152.png">
+  <link rel="stylesheet" href="/gallery.css"><link rel="stylesheet" href="/events.css"><script src="/admin.js" defer></script>
+</head>
+<body class="admin-page">
+  <header class="site-header admin-header"><a class="brand" href="/admin" aria-label="PICME administration"><img src="/brand/picme_logo_colour.svg" alt="PICME" width="140" height="53"></a><div class="actions"><span id="admin-user" class="count"></span><button id="logout" class="secondary compact" type="button" hidden>Sign out</button></div></header>
+  <main>
+    <section id="login-panel" class="login-panel" hidden aria-labelledby="login-title"><p class="eyebrow">PICME ADMINISTRATION</p><h1 id="login-title">Welcome back.</h1><p class="subtext">Sign in to manage private event galleries.</p><form id="login-form" method="post"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="128"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"><button id="sign-in" type="submit">Sign in</button></form></section>
+    <section id="events-panel" class="events-panel" hidden aria-labelledby="events-title"><div class="section-heading"><div><p class="eyebrow">ONE LINK. EVERY MOMENT.</p><h1 id="events-title">Your events</h1><p class="subtext">Create a private gallery for the organizer. Match the Event ID set in the booth.</p></div><button id="refresh-events" class="secondary compact" type="button">Refresh events</button></div>
+      <form id="create-event" class="create-event" method="post"><div><label for="event-name">Event name</label><input id="event-name" name="name" placeholder="Anna & David’s wedding" required maxlength="120"></div><div><label for="event-id">Booth Event ID</label><input id="event-id" name="eventId" placeholder="anna-david" pattern="[a-z0-9][a-z0-9_-]{0,63}" maxlength="64" required aria-describedby="event-id-help"><span id="event-id-help" class="field-help">Use the exact ID configured in the booth.</span></div><button id="create-button" type="submit">Create owner link</button></form>
+      <section id="created-link" class="created-link" hidden aria-label="New owner link"><h2>Owner link ready</h2><p>Anyone with this private link can view and download all photos from this event.</p><label for="new-owner-url">Share this link with the organizer</label><div class="link-field"><input id="new-owner-url" readonly><button id="copy-new-link" class="compact" type="button">Copy link</button><a id="open-new-link" class="button secondary compact" target="_blank" rel="noopener noreferrer">Open gallery</a></div></section>
+      <div id="event-list" class="event-list"></div><p id="empty-events" class="subtext" hidden>No events yet. Create the first owner link above.</p><button id="more-events" class="secondary compact" type="button" hidden>Load more events</button>
+    </section>
+    <p id="admin-status" class="page-status" role="status" aria-live="polite">Opening administration…</p>
+  </main>
+  <dialog id="confirm-action" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-detail"><h2 id="confirm-title">Replace owner link?</h2><p id="confirm-detail"></p><div class="actions"><button id="cancel-action" class="secondary compact" type="button" autofocus>Cancel</button><button id="accept-action" class="compact" type="button">Replace link</button></div></dialog>
+</body>
+</html>

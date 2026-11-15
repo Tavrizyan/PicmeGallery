@@ -3,7 +3,11 @@ using PicmeGallery.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true).AddEnvironmentVariables();
-builder.Services.AddSingleton<IPhotoStore, AzurePhotoStore>();
+builder.Services.AddSingleton<AzurePhotoStore>();
+builder.Services.AddSingleton<IPhotoStore>(services => services.GetRequiredService<AzurePhotoStore>());
+builder.Services.AddSingleton<IEventPhotoStore>(services => services.GetRequiredService<AzurePhotoStore>());
+builder.Services.AddSingleton<IEventStore, AzureEventStore>();
+builder.Services.AddGalleryAdministration(builder.Configuration);
 var app = builder.Build();
 
 app.Use(async (context, next) =>
@@ -27,7 +31,19 @@ app.Use(async (context, next) =>
         app.Logger.LogWarning("Photo storage unavailable ({FailureType}).", error.GetType().Name);
     }
 });
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/admin") &&
+        context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+        limit.MaxRequestBodySize = 4096;
+    await next();
+});
 app.UseStaticFiles();
+app.MapGalleryAdministration();
+app.MapOwnerGallery();
 app.MapGet("/health", () => Results.Ok(new { service = "PicmeGallery", status = "running" }));
 app.MapGet("/api/guest/{token}", async (string token, IPhotoStore store, CancellationToken cancellation) =>
 {

@@ -26,7 +26,7 @@ flowchart LR
 | PicmeGallery | Guest page, token validation, discovery of that guest's assets, upload-completion status, and authorization of individual downloads. |
 | Cloudflare Worker | Forwarding the public gallery hostname to the Azure Web App origin while preserving paths and queries. |
 
-PicmeBooth calls Azure directly. There is no gallery registration API, album-creation request, or required gallery database. The booth's local queue/catalog is not a gallery database.
+PicmeBooth calls Azure directly. Guest delivery requires no gallery registration, album creation, or gallery database. Admin-created owner links are optional access records; booth uploads and guest delivery do not depend on them. The booth's local queue/catalog is not a gallery database.
 
 ## Guest delivery flow
 
@@ -58,7 +58,7 @@ Hash the 43-character text, not the decoded random bytes. The booth and gallery 
 
 The guest token has no automatic expiry. The five-minute SAS is a separate, replaceable download credential; scanning the same printed QR later produces fresh authorized download URLs. Keeping a printed link usable still requires retaining the domain, service, blobs, tags, metadata, and working server credentials.
 
-Malformed tokens return 404. Unknown well-formed tokens return a generic waiting state rather than another guest's content. Every media request validates the token and an allowed asset ID. There is no login, event-owner role, or token-revocation UI in this phase.
+Malformed tokens return 404. Unknown well-formed tokens return a generic waiting state rather than another guest's content. Every media request validates the token and an allowed asset ID. Guest links remain independent of the admin login and event-owner links described below.
 
 ## Storage contract, version 1
 
@@ -118,7 +118,7 @@ The browser polls unfinished sessions with bounded retries, preserves already vi
 | Decision | Reason |
 | --- | --- |
 | Separate application and repository | Preserve the old `Picme.am` application and allow independent gallery deployment. |
-| No database or album registry | Storage paths/tags supply the lookup; deploy/restart the gallery without migrating application state. |
+| No database | Guest lookup uses media paths/tags; optional admin-created event access records also live in private Azure blobs. |
 | Direct Azure uploads from the booth | Capture/upload does not require a healthy gallery API. |
 | Random permanent guest token | Printed QRs cannot be replaced when an expiring link stops working; random values also prevent easy enumeration. |
 | Private storage with short-lived SAS | The permanent guest link authorizes access without making the entire container public. |
@@ -130,8 +130,29 @@ Azure Functions was considered but was not selected for this implementation. Thi
 
 ## Current boundaries
 
-Owner/admin event galleries and links, accounts/roles, resizing/thumbnails, cloud processing, media deletion, local cleanup policy, and automatic infrastructure provisioning are not implemented here. Do not imply that predictable Event IDs or a configured public hostname provide those features.
+Resizing/thumbnails, cloud processing, media/event deletion, multiple administrator accounts/roles, local cleanup policy, and automatic infrastructure provisioning are not implemented here. Event IDs remain grouping labels, never authorization credentials.
 
 The gallery requires HTTPS Azure cloud storage. Emulator-only changes were reverted at the owner's request; there is no supported local HTTP storage mode. Running the web app locally against a real private Azure container is supported.
 
 Implementation entry points: [Program.cs](../src/PicmeGallery.Web/Program.cs), [AzurePhotoStore.cs](../src/PicmeGallery.Web/AzurePhotoStore.cs), [GalleryContract.cs](../src/PicmeGallery.Web/GalleryContract.cs), and [gallery.js](../src/PicmeGallery.Web/wwwroot/gallery.js).
+
+## Administration and event-owner access
+
+`/admin/login` uses a configured `Admin:Username` and `Admin:Password`, with cookie authentication, CSRF validation on mutations (including login), per-IP login rate limiting, and credential-change invalidation. `/admin` lists events and creates, copies, replaces, or revokes their owner links. Copyable owner tokens are encrypted with a persistent Data Protection key ring; only their hash is used to authorize requests. See [configuration and behavior](../README.md#admin-and-event-owner-galleries).
+
+Mutable Hot-tier records use `gallery/events/{eventId}.json`; hashed access pointers use `gallery/access/{tokenHash}.json`. The access pointer is created before an ETag-conditional event-record update. The event record is authoritative: a conflicting/interrupted update leaves no active new link, and old pointers cannot authorize revoked tokens. Event IDs must match the booth’s captured tags. This registry is optional for guest delivery and adds no booth registration dependency.
+
+`/e/{token}` shows paginated finals only, discovered by validated EventId/Kind tags. `/e/{token}/s/{sessionHash}` reuses the guest-style final/original viewer through event-scoped APIs, without recovering or exposing guest tokens. Every event API request resolves the active owner token; individual media/session requests also validate membership in that event. Azure tag-index consistency delays apply to event-wide discovery.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/admin/session` | Session status and CSRF request token. |
+| `POST /api/admin/login`, `POST /api/admin/logout` | Configured-credential sign-in and cookie sign-out. |
+| `GET/POST /api/admin/events` | Authenticated, paginated event list or event-link creation. |
+| `POST /api/admin/events/{eventId}/replace` or `/revoke` | Authenticated CSRF-protected, version-conditional link mutation. |
+| `GET /api/event/{token}` | Event name and one page of final-only session cards; protected continuation cursor. |
+| `GET /api/event/{token}/sessions/{hash}` | That event session’s final and originals. |
+| `GET /api/event/{token}/media/{hash}/{id}` | Validated event-scoped preview/download SAS, or original same-origin bytes with `?file=true`. |
+| `GET /api/event/{token}/download` | Streaming ZIP of all available finals and originals across all pages, with a per-instance archive concurrency limit. |
+
+ZIP creation streams photo bodies and retains only archive/session bookkeeping in memory. The .NET 10 entry-stream wrapper can write its closing ZIP descriptor synchronously; synchronous response IO is enabled for this route only, while photo transfer and archive finalization use async IO. A stream failure aborts the response instead of delivering an apparently successful incomplete archive. Request duration and host quotas still apply. No durable ZIP job or archive storage is provisioned.

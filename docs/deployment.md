@@ -93,6 +93,9 @@ Configuration reference:
 | --- | --- | --- |
 | `Azure__ConnectionString` | Local environment or Azure Web App app setting | HTTPS Azure Blob connection string capable of reads/tag queries and SAS signing. |
 | `Azure__Container` | Same | The existing private container name, for example `photos`. |
+| `Admin__Username` | Azure Web App app setting / local private config | Administrator login. Missing values disable sign-in. |
+| `Admin__Password` | Azure Web App app setting / local private config | Administrator password; never commit it. |
+| `Admin__DataProtectionKeysPath` | Azure Web App app setting | Persistent private key directory; Linux App Service: `/home/data/picme-gallery-keys` with App Service storage enabled. Preserve across deployments and back it up securely. |
 | `AZURE_ORIGIN` | Cloudflare Worker variable | The gallery Web App's assigned HTTPS `azurewebsites.net` origin, with `/` as its path. No guest token or storage key. |
 | Guest URL pattern | PicmeBooth Uploads settings | The verified public route, normally `https://photos.picme.am/p/{accessToken}`. This is not a gallery environment variable. |
 
@@ -181,3 +184,9 @@ Scan the actual printed QR through the public hostname. Check final-first progre
 F1's free hosting allowance does not make storage, Cold retrieval/operations, or all Cloudflare usage free. Cold is online storage with a 90-day minimum billing period; early deletion/tier changes can incur charges. Archive requires rehydration and is unsuitable for immediate scans. These distinctions are documented in the [Azure access-tier guide](https://learn.microsoft.com/en-us/azure/storage/blobs/access-tiers-overview).
 
 Use current region/redundancy/traffic inputs in the [Azure Blob pricing page](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/), [App Service pricing page](https://azure.microsoft.com/en-us/pricing/details/app-service/), and [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/). No fixed monthly cost or production availability is promised by this setup.
+
+## Admin/event rollout verification
+
+The existing Azure credential must now be able to **write** small event/access JSON blobs under `gallery/` as well as read/list/sign photos. Management records are Hot; media remains Cold. Keep the container private and exclude `gallery/` records from lifecycle rules that could archive or expire them. Preserve the Data Protection key directory across deployments; it protects admin sessions, copyable event links, and pagination cursors. Local config files are explicitly excluded from publish output.
+
+After deployment, open `https://photos.picme.am/admin`, sign in with the Azure-configured credentials, create a test event using a real booth Event ID, and verify its owner link without an admin cookie. Confirm final-only listing, session originals, JPEG/PNG/GIF downloads, all-page ZIP contents, replace/revoke behavior, and guest QR access. Test through the public Cloudflare hostname to verify secure cookies and CSRF headers survive the proxy. Large ZIP downloads need a representative real-event check against hosting timeouts and quotas.

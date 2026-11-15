@@ -51,7 +51,7 @@ Guest links are bearer credentials. Avoid recording full token paths in applicat
 
 The app and Worker return private/no-store responses and `Referrer-Policy: no-referrer`; the app also adds no-index and content-security headers. These reduce incidental exposure and shared caching but do not replace the guest-token checks or private storage permissions. Do not install an edge cache rule that serves one guest's API/media redirect to another.
 
-An Event ID is a grouping label, not a password. Event owner/admin access will need its own implemented authorization design; it is not supplied by knowing an event label today.
+An Event ID is a grouping label, not a password. Event owner access requires an active random owner token created at `/admin`; knowing an event label does not authorize access. Replace or revoke a link from the event list when access needs to change.
 
 ## Credential rotation
 
@@ -63,8 +63,18 @@ Use Azure's supported key-rotation process, maintaining a usable credential whil
 - Run the gallery/proxy checks and `dotnet publish` after application changes. For documentation-only updates, validate document links and commands against the repository rather than inventing new implementation tests.
 - Deploy the UI and API together. If changing media formats, schema, token/hash computation, filenames, or tag semantics, update the booth and gallery compatibly. Preserve reads for already printed sessions.
 - Keep the previous published application package and Worker configuration/revision for rollback. Restore the origin/configuration or redeploy the compatible package; do not delete media to undo a code rollout.
-- CI checks and publishes output, then automatically deploys successful pushes to `main` through the `gallery` environment once configured. See [GitHub Actions deployment](deployment.md#github-actions-deployment) for settings, partial failures, and artifact retention. Infrastructure as code, owner galleries, image optimization, and cleanup remain future changes.
+- CI checks and publishes output, then automatically deploys successful pushes to `main` through the `gallery` environment once configured. See [GitHub Actions deployment](deployment.md#github-actions-deployment) for settings, partial failures, and artifact retention. Infrastructure as code, image optimization, and cleanup remain future changes. Owner-gallery/admin setup and verification are covered in the README and deployment guide.
 
 ## Deployment inventory
 
 Copy [deployment-record.example.md](deployment-record.example.md) into an appropriate environment record after verifying the actual rollout. Record resource names and revision IDs, not secrets or guest URLs. Review that record whenever the origin, storage destination, plan, domain, or supported media contract changes.
+
+## Admin and owner-link maintenance
+
+- Configure `Admin__Username` and `Admin__Password` in Azure app settings. Missing credentials disable login. Changing either setting invalidates existing admin sessions; organizers’ event links are independent.
+- Keep the Data Protection key ring on persistent private storage (`Admin__DataProtectionKeysPath`), and preserve it across releases. Back it up securely. Losing the keys invalidates admin sessions/pagination cursors and prevents re-copying encrypted owner links; an admin can generate replacement links, while previously issued active owner links still authorize via their stored hash.
+- Retain the private Hot-tier `gallery/events/` and `gallery/access/` records. Exclude them from media lifecycle/archive/expiry rules. Never make them public or expose their contents in logs/support captures.
+- Use the exact booth Event ID when creating an owner link. Reusing an Event ID intentionally combines its photos in one owner gallery. A wrong ID usually produces an empty gallery; an ID is never a secret.
+- Event-wide discovery uses Azure’s asynchronous tag index. If a new final is missing, wait for index propagation and use Refresh gallery. The session viewer still uses the existing original-prefix fallback.
+- ZIP downloads include all currently available session photos across pages, not just the visible grid. They stream without a durable archive job, allow two concurrent downloads per app instance, and remain subject to hosting/network timeouts. Retry interrupted downloads; use a representative large-event test before promising archive sizes/durations.
+- Link revocation/replacement applies to subsequent authorization checks; issued media SAS URLs may work for their remaining five-minute lifetime, and downloaded files cannot be recalled. Guest printed QRs remain independent.

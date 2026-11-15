@@ -1,7 +1,13 @@
 "use strict";
 (() => {
   const byId = id => document.getElementById(id);
-  const token = /^\/p\/([A-Za-z0-9_-]{43})\/?$/.exec(location.pathname)?.[1];
+  const ownerSession = /^\/e\/([A-Za-z0-9_-]{43})\/s\/([0-9a-f]{64})\/?$/.exec(location.pathname);
+  const token = ownerSession?.[1] || /^\/p\/([A-Za-z0-9_-]{43})\/?$/.exec(location.pathname)?.[1];
+  const galleryUrl = ownerSession ? `/api/event/${token}/sessions/${ownerSession[2]}` : `/api/guest/${token}`;
+  if (ownerSession) {
+    const back = byId("event-back"); back.hidden = false; back.href = `/e/${token}`;
+    document.querySelector(".keep-note").textContent = "Your session’s finished print and original photos, in full quality.";
+  }
   const status = byId("status"), refresh = byId("refresh");
   const waiting = byId("waiting"), grid = byId("originals"), dialog = byId("preview");
   const previewImage = byId("preview-image"), shareButton = byId("share-photo"), saveStatus = byId("save-status");
@@ -130,8 +136,8 @@
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25000);
     try {
-      const response = await fetch(`/api/guest/${token}`, { cache: "no-store", signal: controller.signal });
-      if (!response.ok) throw new Error(response.status === 404 ? "This photo link could not be opened. Please scan the QR on your print again." : "Your photos are temporarily unavailable. Please try again shortly.");
+      const response = await fetch(galleryUrl, { cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(response.status === 404 ? (ownerSession ? "This event link or session is unavailable. Ask the organizer for a current link." : "This photo link could not be opened. Please scan the QR on your print again.") : "Your photos are temporarily unavailable. Please try again shortly.");
       const photos = await response.json(); status.classList.remove("error");
       if (photos.final) {
         assets.set("final", { ...photos.final, label: photos.final.contentType === "image/gif" ? "Your animated moment" : "Your finished print" });
