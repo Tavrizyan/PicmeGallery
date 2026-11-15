@@ -163,7 +163,7 @@ public static class AdminEndpoints
 
 internal static class Cursors
 {
-    public static string? Write(IDataProtectionProvider provider, string scope, string? continuation) => continuation is null ? null
+    public static string? Write(IDataProtectionProvider provider, string scope, string? continuation) => string.IsNullOrEmpty(continuation) ? null
         : provider.CreateProtector("GalleryPaging", scope).Protect(continuation);
     public static bool TryRead(IDataProtectionProvider provider, string scope, string? cursor, out string? continuation)
     {

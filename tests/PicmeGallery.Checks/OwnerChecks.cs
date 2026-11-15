@@ -52,7 +52,12 @@ internal static class OwnerChecks
         Check(created.StatusCode == HttpStatusCode.OK && GalleryContract.TokenHash(token) is not null, "Admin creates an unpredictable owner link");
         Check(store.Values["test-event"].Record.ProtectedToken != token && store.Values["test-event"].Record.TokenHash == GalleryContract.TokenHash(token), "Owner token is stored encrypted and hashed");
         Check((await client.PostAsJsonAsync("/api/admin/events", new { eventId = "test-event", name = "Duplicate" })).StatusCode == HttpStatusCode.Conflict, "Duplicate Event IDs are not overwritten");
-        var listing = await client.GetFromJsonAsync<JsonElement>("/api/admin/events");
+        // Azure can use an empty string (not null) for the final continuation marker.
+        var terminalRegistryPage = await store.ListAsync(null, CancellationToken.None);
+        Check(terminalRegistryPage.Continuation == "", "Registry fixture models Azure’s empty final continuation marker");
+        using var eventTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var listing = await client.GetFromJsonAsync<JsonElement>("/api/admin/events", eventTimeout.Token);
+        Check(listing.GetProperty("events").GetArrayLength() == 1 && listing.GetProperty("nextCursor").ValueKind == JsonValueKind.Null, "Single saved event returns promptly and has no next page for an empty storage marker");
         var record = listing.GetProperty("events")[0];
         Check(record.GetProperty("ownerPath").GetString() == path && record.GetProperty("name").GetString() == "Test celebration", "Admin can recover and copy existing link");
         Check((await client.GetAsync("/api/admin/events?cursor=tampered")).StatusCode == HttpStatusCode.BadRequest, "Tampered admin cursor rejected");
@@ -78,8 +83,10 @@ internal static class OwnerChecks
         Check(first.GetProperty("name").GetString() == "Test celebration" && first.GetProperty("sessions").GetArrayLength() == 1, "Owner sees paged event sessions without login");
         Check(!first.GetProperty("sessions")[0].TryGetProperty("originals", out _), "Owner grid descriptions contain only finals");
         string nextCursor = first.GetProperty("nextCursor").GetString()!;
+        Check((await photos.ListFinalsAsync("test-event", "second-page", CancellationToken.None)).Continuation == "", "Photo fixture models Azure’s empty final continuation marker");
         var second = await owner.GetFromJsonAsync<JsonElement>(api + "?cursor=" + Uri.EscapeDataString(nextCursor));
         Check(second.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == MemoryPhotos.Second, "Owner continuation loads additional sessions");
+        Check(second.GetProperty("nextCursor").ValueKind == JsonValueKind.Null, "Empty final photo marker is not encrypted into another owner cursor");
         Check((await owner.GetAsync(api + "?cursor=forged")).StatusCode == HttpStatusCode.BadRequest, "Tampered owner cursor rejected");
         Check((await owner.GetAsync("/api/event/" + EventAccess.NewToken())).StatusCode == HttpStatusCode.NotFound, "Unknown owner token reveals no event");
         Check((await owner.GetAsync("/api/guest/" + token)).StatusCode == HttpStatusCode.OK, "Owner token is not a session token and sees guest waiting state");
@@ -235,9 +242,9 @@ internal static class OwnerChecks
         private int revision;
         public Task<EventListPage> ListAsync(string? continuation, CancellationToken cancellation)
         {
-            int offset = continuation is null ? 0 : int.Parse(continuation);
+            int offset = string.IsNullOrEmpty(continuation) ? 0 : int.Parse(continuation);
             var entries = Values.Values.Skip(offset).Take(12).ToArray();
-            return Task.FromResult(new EventListPage(entries, offset + entries.Length < Values.Count ? (offset + entries.Length).ToString() : null));
+            return Task.FromResult(new EventListPage(entries, offset + entries.Length < Values.Count ? (offset + entries.Length).ToString() : ""));
         }
         public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) => Task.FromResult(Values.GetValueOrDefault(eventId));
         public Task<StoredEvent?> ResolveAsync(string hash, CancellationToken cancellation) => Task.FromResult(Values.Values.FirstOrDefault(item => item.Record.TokenHash == hash));
@@ -263,7 +270,7 @@ internal static class OwnerChecks
             var gallery = await FindAsync(hash, cancellation); return id == "final" ? gallery.Final : gallery.Originals.FirstOrDefault(photo => photo.Id == id);
         }
         public Task<EventPhotoPage> ListFinalsAsync(string eventId, string? continuation, CancellationToken cancellation) => Task.FromResult(eventId != "test-event"
-            ? new EventPhotoPage([], null) : continuation is null ? new EventPhotoPage([new(First, Asset(First, "final"))], "second-page") : new EventPhotoPage([new(Second, Asset(Second, "final"))], null));
+            ? new EventPhotoPage([], "") : continuation is null ? new EventPhotoPage([new(First, Asset(First, "final"))], "second-page") : new EventPhotoPage([new(Second, Asset(Second, "final"))], ""));
         public Uri DownloadUrl(PhotoAsset photo, bool attachment) => new("https://example.blob.core.windows.net/photos/" + photo.BlobName);
         public Task<Stream> OpenReadAsync(PhotoAsset photo, CancellationToken cancellation)
         {

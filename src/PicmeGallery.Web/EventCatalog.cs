@@ -11,10 +11,11 @@ public sealed class EventCatalog(IEventStore events)
         string? continuation = null;
         do
         {
+            cancellation.ThrowIfCancellationRequested();
             var page = await events.ListAsync(continuation, cancellation);
             foreach (var stored in page.Events) catalog[stored.Record.EventId] = stored;
             continuation = page.Continuation;
-        } while (continuation is not null);
+        } while (!string.IsNullOrEmpty(continuation));
         return catalog.Values.OrderByDescending(item => item.Record.CreatedUtc)
             .ThenBy(item => item.Record.EventId, StringComparer.Ordinal).ToArray();
     }

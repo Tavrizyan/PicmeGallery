@@ -17,7 +17,7 @@ public sealed class AzureEventStore(IConfiguration configuration) : IEventStore
                 string eventId = Path.GetFileNameWithoutExtension(blob.Name);
                 if (GalleryContract.ValidEventId(eventId) && await GetAsync(eventId, cancellation) is { } record) records.Add(record);
             }
-            return new(records, page.ContinuationToken);
+            return new(records, string.IsNullOrEmpty(page.ContinuationToken) ? null : page.ContinuationToken);
         }
         return new([], null);
     }

@@ -81,6 +81,7 @@ public static class OwnerEndpoints
                     var seen = new HashSet<string>();
                     do
                     {
+                        cancellation.ThrowIfCancellationRequested();
                         var page = await events.ListFinalsAsync(record.EventId, cursor, cancellation);
                         foreach (var session in page.Sessions)
                         {
@@ -97,7 +98,7 @@ public static class OwnerEndpoints
                             }
                         }
                         cursor = page.Continuation;
-                    } while (cursor is not null);
+                    } while (!string.IsNullOrEmpty(cursor));
                 }
                 catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { context.Abort(); }
                 catch (Exception error)

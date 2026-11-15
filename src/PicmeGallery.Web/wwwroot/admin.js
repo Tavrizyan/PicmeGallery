@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const byId = id => document.getElementById(id), status = byId("admin-status");
-  let csrf, nextCursor, loading = false, pendingAction;
+  let csrf, nextCursor, loading = false, initializing = false, pendingAction;
   const notice = (message, error = false) => { status.textContent = message; status.classList.toggle("error", error); };
   async function request(url, body) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 30000);
@@ -98,7 +98,11 @@
   byId("copy-new-link").addEventListener("click", () => copy(byId("new-owner-url")));
   byId("refresh-events").addEventListener("click", () => loadEvents(true).then(() => notice("Event list updated.")).catch(error => notice(error.message, true)));
   byId("more-events").addEventListener("click", () => loadEvents().catch(error => notice(error.message, true)));
-  (async () => {
+  async function initializeAdministration() {
+    if (initializing) return;
+    initializing = true;
+    const retry = byId("retry-admin"); if (retry) retry.hidden = true;
+    notice("Checking your sign-in…");
     try {
       const session = await request("/api/admin/session"); csrf = session.csrfToken;
       if (!session.authenticated) {
@@ -107,7 +111,10 @@
       }
       if (location.pathname !== "/admin") history.replaceState(null, "", "/admin");
       byId("events-panel").hidden = false; byId("logout").hidden = false; byId("admin-user").textContent = session.username;
-      await loadEvents(true); notice("");
-    } catch (error) { notice(error.message, true); }
-  })();
+      notice("Loading your events…"); await loadEvents(true); notice("");
+    } catch (error) { notice(error.message, true); if (retry) retry.hidden = false; }
+    finally { initializing = false; }
+  }
+  byId("retry-admin")?.addEventListener("click", initializeAdministration);
+  initializeAdministration();
 })();

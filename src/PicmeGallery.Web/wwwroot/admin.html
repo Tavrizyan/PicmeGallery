@@ -16,7 +16,7 @@
       <section id="created-link" class="created-link" hidden aria-label="New owner link"><h2>Owner link ready</h2><p>Anyone with this private link can view and download all photos from this event.</p><label for="new-owner-url">Share this link with the organizer</label><div class="link-field"><input id="new-owner-url" readonly><button id="copy-new-link" class="compact" type="button">Copy link</button><a id="open-new-link" class="button secondary compact" target="_blank" rel="noopener noreferrer">Open gallery</a></div></section>
       <div id="event-list" class="event-list"></div><p id="empty-events" class="subtext" hidden>No owner links yet. Enter an Event ID from a guest’s QR gallery to create one.</p><button id="more-events" class="secondary compact" type="button" hidden>Load more events</button>
     </section>
-    <p id="admin-status" class="page-status" role="status" aria-live="polite">Opening administration…</p>
+    <p id="admin-status" class="page-status" role="status" aria-live="polite">Opening administration…</p><button id="retry-admin" class="secondary compact" type="button" hidden>Try again</button>
   </main>
   <dialog id="confirm-action" class="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-detail"><h2 id="confirm-title">Replace owner link?</h2><p id="confirm-detail"></p><div class="actions"><button id="cancel-action" class="secondary compact" type="button" autofocus>Cancel</button><button id="accept-action" class="compact" type="button">Replace link</button></div></dialog>
 </body>

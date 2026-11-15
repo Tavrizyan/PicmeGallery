@@ -71,7 +71,7 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore,
                 var photo = await GetAsync(parts[1], "final", cancellation);
                 if (photo?.EventId == eventId) sessions[parts[1]] = new(parts[1], photo);
             }
-            return new(sessions.Values.ToArray(), page.ContinuationToken);
+            return new(sessions.Values.ToArray(), string.IsNullOrEmpty(page.ContinuationToken) ? null : page.ContinuationToken);
         }
         return new([], null);
     }

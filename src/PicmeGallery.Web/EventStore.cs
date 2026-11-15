@@ -38,9 +38,10 @@ internal static class SessionPages
         EventFinal[] sessions;
         do
         {
+            cancellation.ThrowIfCancellationRequested();
             page = await store.ListFinalsAsync(eventId, continuation, cancellation);
             sessions = page.Sessions.Where(include).ToArray();
-            continuation = page.Continuation;
+            continuation = string.IsNullOrEmpty(page.Continuation) ? null : page.Continuation;
         } while (sessions.Length == 0 && continuation is not null);
         return new(sessions, continuation);
     }
