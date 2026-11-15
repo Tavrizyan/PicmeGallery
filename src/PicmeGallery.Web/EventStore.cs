@@ -2,7 +2,11 @@ using System.Security.Cryptography;
 
 namespace PicmeGallery.Web;
 
-public sealed record EventRecord(string EventId, string Name, DateTimeOffset CreatedUtc, string? TokenHash, string? ProtectedToken);
+public sealed record EventRecord(string EventId, string Name, DateTimeOffset CreatedUtc, string? TokenHash, string? ProtectedToken,
+    IReadOnlyList<string>? HiddenSessionIds = null)
+{
+    public bool IsHidden(string sessionId) => HiddenSessionIds?.Contains(sessionId, StringComparer.Ordinal) == true;
+}
 public sealed record StoredEvent(EventRecord Record, string Version);
 public sealed record EventListPage(IReadOnlyList<StoredEvent> Events, string? Continuation);
 public sealed record EventFinal(string SessionId, PhotoAsset Final);
@@ -23,4 +27,21 @@ public interface IEventPhotoStore
 public static class EventAccess
 {
     public static string NewToken() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+}
+
+internal static class SessionPages
+{
+    public static async Task<EventPhotoPage> ReadAsync(IEventPhotoStore store, string eventId, string? continuation,
+        Func<EventFinal, bool> include, CancellationToken cancellation)
+    {
+        EventPhotoPage page;
+        EventFinal[] sessions;
+        do
+        {
+            page = await store.ListFinalsAsync(eventId, continuation, cancellation);
+            sessions = page.Sessions.Where(include).ToArray();
+            continuation = page.Continuation;
+        } while (sessions.Length == 0 && continuation is not null);
+        return new(sessions, continuation);
+    }
 }

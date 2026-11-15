@@ -75,6 +75,9 @@ public static class AdminEndpoints
         app.MapGet("/admin/login", (IWebHostEnvironment env) => Results.File(Path.Combine(env.WebRootPath, "admin.html"), "text/html"));
         app.MapGet("/admin", (HttpContext context, IWebHostEnvironment env) => context.User.Identity?.IsAuthenticated == true
             ? Results.File(Path.Combine(env.WebRootPath, "admin.html"), "text/html") : Results.Redirect("/admin/login"));
+        app.MapGet("/admin/events/{eventId}/sessions", (string eventId, HttpContext context, IWebHostEnvironment env) =>
+            !GalleryContract.ValidEventId(eventId) ? Results.NotFound() : context.User.Identity?.IsAuthenticated == true
+                ? Results.File(Path.Combine(env.WebRootPath, "admin-sessions.html"), "text/html") : Results.Redirect("/admin/login"));
         app.MapGet("/api/admin/session", (HttpContext context, IAntiforgery antiforgery) => Results.Ok(new
         {
             authenticated = context.User.Identity?.IsAuthenticated == true,
@@ -89,8 +92,9 @@ public static class AdminEndpoints
                 catch (AntiforgeryValidationException) { return Results.BadRequest(new { message = "Your session changed. Refresh the page and try again." }); }
             }
             try { return await next(context); }
-            catch (EventConflictException) { return Results.Conflict(new { message = "This event already exists or was changed in another tab. Refresh the event list and try again." }); }
+            catch (EventConflictException) { return Results.Conflict(new { message = "This event already exists or was changed in another tab. Refresh and try again." }); }
         });
+        api.MapSessionManagement();
         api.MapPost("/login", async (LoginInput input, HttpContext context, AdminCredentials credentials, IConfiguration config) =>
         {
             if (!credentials.Configured) return Results.Json(new { message = "Admin sign-in is not configured." }, statusCode: 503);

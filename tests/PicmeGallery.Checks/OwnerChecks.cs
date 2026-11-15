@@ -108,14 +108,16 @@ internal static class OwnerChecks
         catch (HttpRequestException) { interrupted = true; }
         finally { photos.FailReads = false; }
         Check(interrupted, "Failed photo transfer aborts the ZIP instead of returning an incomplete success");
-        string version = record.GetProperty("version").GetString()!;
+        await CheckVisibilityAsync(client, owner, store, token);
+        string version = store.Values["test-event"].Version;
         Check((await client.PostAsJsonAsync("/api/admin/events/test-event/replace", new { version = "stale" })).StatusCode == HttpStatusCode.Conflict, "Stale admin mutation cannot replace a link");
         var replaced = await client.PostAsJsonAsync("/api/admin/events/test-event/replace", new { version });
         string newToken = (await replaced.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("ownerPath").GetString()!.Split('/').Last();
         Check(newToken != token && (await owner.GetAsync(api)).StatusCode == HttpStatusCode.NotFound, "Replacing link immediately rejects old event token");
         Check((await owner.GetAsync(api + $"/media/{MemoryPhotos.First}/final")).StatusCode == HttpStatusCode.NotFound &&
             (await owner.GetAsync(api + "/download")).StatusCode == HttpStatusCode.NotFound, "Replaced link also loses media and ZIP access");
-        Check((await owner.GetAsync("/api/event/" + newToken)).StatusCode == HttpStatusCode.OK, "Replacement link works");
+        var replacementGallery = await owner.GetFromJsonAsync<JsonElement>("/api/event/" + newToken);
+        Check(replacementGallery.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == MemoryPhotos.Second && store.Values["test-event"].Record.IsHidden(MemoryPhotos.First), "Replacement link preserves hidden sessions");
         string currentVersion = store.Values["test-event"].Version;
         Check((await client.PostAsJsonAsync("/api/admin/events/test-event/revoke", new { version = currentVersion })).StatusCode == HttpStatusCode.OK &&
             (await owner.GetAsync("/api/event/" + newToken)).StatusCode == HttpStatusCode.NotFound, "Revocation removes event access");
@@ -135,6 +137,82 @@ internal static class OwnerChecks
         for (int i = 0; i < 10; i++) await missingClient.PostAsJsonAsync("/api/admin/login", new { username = "wrong", password = "wrong" });
         Check((await missingClient.PostAsJsonAsync("/api/admin/login", new { username = "wrong", password = "wrong" })).StatusCode == HttpStatusCode.TooManyRequests, "Login attempts are rate limited");
         Console.WriteLine($"PASS: {count} admin/event/access/ZIP checks.");
+    }
+    private static async Task CheckVisibilityAsync(HttpClient admin, HttpClient owner, MemoryEvents events, string token)
+    {
+        const string root = "/api/admin/events/test-event/sessions";
+        string api = "/api/event/" + token;
+        var legacy = JsonSerializer.Deserialize<EventRecord>("{\"EventId\":\"legacy\",\"Name\":\"Legacy\",\"CreatedUtc\":\"2024-01-01T00:00:00Z\",\"TokenHash\":null,\"ProtectedToken\":null}");
+        Check(legacy is not null && !legacy.IsHidden(MemoryPhotos.First), "Legacy event JSON with no visibility field remains visible");
+        Check((await owner.GetAsync(root)).StatusCode == HttpStatusCode.Unauthorized &&
+            (await owner.GetAsync(root + $"/{MemoryPhotos.First}/final")).StatusCode == HttpStatusCode.Unauthorized, "Session management and hidden previews require admin authentication");
+        Check((await owner.PostAsJsonAsync(root + $"/{MemoryPhotos.First}/visibility", new { hidden = true, version = events.Values["test-event"].Version })).StatusCode == HttpStatusCode.Unauthorized, "Owner cannot change session visibility");
+        Check((await admin.GetAsync("/admin/events/test-event/sessions")).StatusCode == HttpStatusCode.OK, "Admin session-management shell is accessible");
+        var page = await admin.GetFromJsonAsync<JsonElement>(root);
+        Check(page.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == MemoryPhotos.First &&
+            !page.GetProperty("sessions")[0].GetProperty("hidden").GetBoolean(), "Admin sees visible session cards and current version");
+        Check((await admin.GetAsync(root + "?filter=unknown")).StatusCode == HttpStatusCode.BadRequest &&
+            (await admin.GetAsync(root + "?cursor=forged")).StatusCode == HttpStatusCode.BadRequest, "Invalid management filter/cursor rejected");
+        string csrf = admin.DefaultRequestHeaders.GetValues("X-CSRF-Token").Single();
+        admin.DefaultRequestHeaders.Remove("X-CSRF-Token");
+        Check((await admin.PostAsJsonAsync(root + $"/{MemoryPhotos.First}/visibility", new { hidden = true, version = events.Values["test-event"].Version })).StatusCode == HttpStatusCode.BadRequest, "Visibility updates require CSRF protection");
+        admin.DefaultRequestHeaders.Add("X-CSRF-Token", csrf);
+        Check((await admin.PostAsJsonAsync(root + $"/{MemoryPhotos.First}/visibility", new { hidden = true, version = "stale" })).StatusCode == HttpStatusCode.Conflict,
+            "Stale visibility edits cannot overwrite the current event record");
+        Check((await admin.PostAsJsonAsync(root + $"/{MemoryPhotos.Other}/visibility", new { hidden = true, version = events.Values["test-event"].Version })).StatusCode == HttpStatusCode.NotFound,
+            "Visibility updates verify session Event ID membership");
+        Check((await admin.PostAsJsonAsync(root + $"/{MemoryPhotos.First}/visibility", new { version = events.Values["test-event"].Version })).StatusCode == HttpStatusCode.BadRequest,
+            "Visibility updates require an explicit hidden value");
+        string originalVersion = events.Values["test-event"].Version;
+        var before = await owner.GetFromJsonAsync<JsonElement>(api);
+        async Task Set(string hash, bool hidden)
+        {
+            var response = await admin.PostAsJsonAsync(root + $"/{hash}/visibility", new { hidden, version = events.Values["test-event"].Version });
+            Check(response.StatusCode == HttpStatusCode.OK, hidden ? "Admin hides a session" : "Admin restores a session");
+        }
+        await Set(MemoryPhotos.First, true);
+        Check(events.Values["test-event"].Record.IsHidden(MemoryPhotos.First) && events.Values["test-event"].Record.TokenHash == GalleryContract.TokenHash(token),
+            "Visibility persists in event JSON without replacing the owner token");
+        var visible = await owner.GetFromJsonAsync<JsonElement>(api);
+        Check(visible.GetProperty("sessions").GetArrayLength() == 1 && visible.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == MemoryPhotos.Second &&
+            visible.GetProperty("nextCursor").ValueKind == JsonValueKind.Null, "Owner pagination skips leading pages containing only hidden sessions");
+        Check(before.GetProperty("visibilityVersion").GetString() != visible.GetProperty("visibilityVersion").GetString(), "Owner visibility version changes for frontend reconciliation");
+        foreach (string path in new[] { $"/sessions/{MemoryPhotos.First}", $"/media/{MemoryPhotos.First}/final", $"/media/{MemoryPhotos.First}/final?download=true",
+            $"/media/{MemoryPhotos.First}/001.jpg?file=true", $"/media/{MemoryPhotos.First}/002.png?download=true" })
+            Check((await owner.GetAsync(api + path)).StatusCode == HttpStatusCode.NotFound, "Hidden session is denied by every owner session/media download path");
+        var all = await admin.GetFromJsonAsync<JsonElement>(root);
+        Check(all.GetProperty("sessions")[0].GetProperty("hidden").GetBoolean() && all.GetProperty("hiddenCount").GetInt32() == 1,
+            "Admin can still see hidden sessions");
+        Check((await admin.GetAsync(root + $"/{MemoryPhotos.First}/final")).StatusCode == HttpStatusCode.Redirect, "Admin can preview a hidden final");
+        var hiddenOnly = await admin.GetFromJsonAsync<JsonElement>(root + "?filter=hidden");
+        var visibleOnly = await admin.GetFromJsonAsync<JsonElement>(root + "?filter=visible");
+        Check(hiddenOnly.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == MemoryPhotos.First &&
+            visibleOnly.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == MemoryPhotos.Second, "Admin Hidden/Visible filters include correct sessions across storage pages");
+        using (var bytes = new MemoryStream(await (await owner.GetAsync(api + "/download")).Content.ReadAsByteArrayAsync()))
+        using (var zip = new ZipArchive(bytes))
+            Check(zip.Entries.Count == 2 && zip.Entries.All(entry => entry.FullName.StartsWith(MemoryPhotos.Second + "/")), "Owner ZIP excludes hidden finals and originals");
+        var guest = await owner.GetFromJsonAsync<JsonElement>("/api/guest/" + MemoryPhotos.GuestToken);
+        Check(guest.GetProperty("state").GetString() == "ready" && guest.GetProperty("originals").GetArrayLength() == 2,
+            "Guest QR API still returns all hidden-session photos");
+        Check((await owner.GetAsync("/p/" + MemoryPhotos.GuestToken)).StatusCode == HttpStatusCode.OK &&
+            (await owner.GetAsync($"/api/media/{MemoryPhotos.GuestToken}/final?file=true")).StatusCode == HttpStatusCode.OK &&
+            (await owner.GetAsync($"/api/media/{MemoryPhotos.GuestToken}/002.png?download=true")).StatusCode == HttpStatusCode.Redirect,
+            "Guest printed QR, final sharing, and original download remain independent of owner hiding");
+        await Set(MemoryPhotos.Second, true);
+        var empty = await owner.GetFromJsonAsync<JsonElement>(api);
+        Check(empty.GetProperty("sessions").GetArrayLength() == 0 && empty.GetProperty("nextCursor").ValueKind == JsonValueKind.Null,
+            "All-hidden event returns an empty owner gallery without leaking session descriptions");
+        using (var bytes = new MemoryStream(await (await owner.GetAsync(api + "/download")).Content.ReadAsByteArrayAsync()))
+        using (var zip = new ZipArchive(bytes)) Check(zip.Entries.Count == 0, "All-hidden event ZIP has no photo entries");
+        await Set(MemoryPhotos.First, false); await Set(MemoryPhotos.Second, false);
+        Check((await owner.GetAsync(api + $"/sessions/{MemoryPhotos.First}")).StatusCode == HttpStatusCode.OK &&
+            (await owner.GetAsync(api + $"/media/{MemoryPhotos.First}/final")).StatusCode == HttpStatusCode.Redirect, "Restore re-enables owner session and media access");
+        string restoredVersion = events.Values["test-event"].Version;
+        await Set(MemoryPhotos.First, false);
+        Check(events.Values["test-event"].Version == restoredVersion, "Idempotent visibility updates do not rewrite the event blob");
+        Check((await admin.PostAsJsonAsync(root + $"/{MemoryPhotos.First}/visibility", new { hidden = true, version = originalVersion })).StatusCode == HttpStatusCode.Conflict,
+            "An old admin tab cannot overwrite subsequent hide/restore changes");
+        await Set(MemoryPhotos.First, true);
     }
     private sealed class Factory(MemoryEvents events, MemoryPhotos photos, bool configured = true) : WebApplicationFactory<global::Program>
     {
@@ -172,7 +250,8 @@ internal static class OwnerChecks
     private sealed class MemoryPhotos : IPhotoStore, IEventPhotoStore
     {
         public bool FailReads;
-        public static readonly string First = new('a', 64), Second = new('b', 64), Other = new('c', 64);
+        public static readonly string GuestToken = EventAccess.NewToken();
+        public static readonly string First = GalleryContract.TokenHash(GuestToken)!, Second = new('b', 64), Other = new('c', 64);
         private static PhotoAsset Asset(string hash, string id) => new(id,
             hash == Second && id == "final" ? $"sessions/{hash}/final.gif" : GalleryContract.BlobName(hash, id),
             hash == Other ? "another-event" : "test-event", 120, id == "final" ? 0 : int.Parse(id[..3]), hash == First ? 2 : 1, "2026-01-01T18:00:00Z");

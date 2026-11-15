@@ -34,6 +34,8 @@
     detail.textContent = `${event.eventId} · ${event.active ? "Active link" : "Link revoked"}${createdLabel}`;
     detail.className = "subtext"; heading.append(name, detail);
     const actions = document.createElement("div"); actions.className = "actions";
+    const manage = document.createElement("a"); manage.className = "button secondary compact";
+    manage.href = `/admin/events/${encodeURIComponent(event.eventId)}/sessions`; manage.textContent = "Manage sessions"; actions.append(manage);
     if (event.ownerPath) {
       const open = document.createElement("a"); open.className = "button secondary compact"; open.href = event.ownerPath; open.target = "_blank"; open.rel = "noopener noreferrer"; open.textContent = "Open gallery"; actions.append(open);
       const copyButton = document.createElement("button"); copyButton.className = "secondary compact"; copyButton.type = "button"; copyButton.textContent = "Copy link";

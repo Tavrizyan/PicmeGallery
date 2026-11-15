@@ -78,3 +78,9 @@ Copy [deployment-record.example.md](deployment-record.example.md) into an approp
 - Event-wide discovery uses Azure’s asynchronous tag index. If a new final is missing, wait for index propagation and use Refresh gallery. The session viewer still uses the existing original-prefix fallback.
 - ZIP downloads include all currently available session photos across pages, not just the visible grid. They stream without a durable archive job, allow two concurrent downloads per app instance, and remain subject to hosting/network timeouts. Retry interrupted downloads; use a representative large-event test before promising archive sizes/durations.
 - Link revocation/replacement applies to subsequent authorization checks; issued media SAS URLs may work for their remaining five-minute lifetime, and downloaded files cannot be recalled. Guest printed QRs remain independent.
+
+### Session visibility
+
+Use **Manage sessions** in the admin event list, then **Hide from owner** or **Restore to owner**. All / Visible / Hidden filters apply to the management view; hidden sessions remain previewable by authenticated admins. These controls change only `HiddenSessionIds` in the private event JSON, with conditional ETag writes. No photo tags or guest bearer tokens are changed.
+
+For verification, hide a test session and confirm it disappears from owner listing responses, its owner session/media APIs return 404, and its finals/originals are absent from a newly requested event ZIP. Then scan that session’s original guest QR and verify final/original preview and download still work. Restore it and repeat the owner checks. Confirm hide/restore state survives owner-link replacement. Existing SAS URLs may last five minutes and already-running downloads may finish; loaded owner views reconcile on their next refresh rather than via server push.

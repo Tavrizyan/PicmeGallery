@@ -137,6 +137,13 @@
     const timeout = setTimeout(() => controller.abort(), 25000);
     try {
       const response = await fetch(galleryUrl, { cache: "no-store", signal: controller.signal });
+      if (response.status === 404 && ownerSession) {
+        if (dialog.open) dialog.close();
+        assets.clear(); grid.replaceChildren(); byId("final-image").removeAttribute("src");
+        byId("final-section").hidden = byId("originals-section").hidden = byId("event-info").hidden = true;
+        waiting.hidden = false; byId("waiting-title").textContent = "This session is unavailable.";
+        byId("waiting-detail").textContent = "Return to the event gallery for the available moments, or ask the organizer for a current link.";
+      }
       if (!response.ok) throw new Error(response.status === 404 ? (ownerSession ? "This event link or session is unavailable. Ask the organizer for a current link." : "This photo link could not be opened. Please scan the QR on your print again.") : "Your photos are temporarily unavailable. Please try again shortly.");
       const photos = await response.json(); status.classList.remove("error");
       byId("guest-event-id").textContent = photos.eventId || "";

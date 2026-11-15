@@ -19,16 +19,18 @@ public static class OwnerEndpoints
             var stored = hash is null ? null : await store.ResolveAsync(hash, context.HttpContext.RequestAborted);
             if (stored is null) return Results.NotFound(new { message = "This event link is unavailable. Please ask the organizer for a current link." });
             context.HttpContext.Items["OwnerEvent"] = stored.Record;
+            context.HttpContext.Items["OwnerEventVersion"] = stored.Version;
             return await next(context);
         });
         api.MapGet("", async (string token, string? cursor, HttpContext context, IEventPhotoStore photos, IDataProtectionProvider protection, CancellationToken cancellation) =>
         {
             var record = Event(context);
             if (!Cursors.TryRead(protection, "event:" + record.EventId, cursor, out string? continuation)) return Results.BadRequest(new { message = "Invalid page. Refresh the gallery." });
-            var page = await photos.ListFinalsAsync(record.EventId, continuation, cancellation);
+            var page = await SessionPages.ReadAsync(photos, record.EventId, continuation, session => !record.IsHidden(session.SessionId), cancellation);
             return Results.Ok(new
             {
                 name = record.Name,
+                visibilityVersion = (string)context.Items["OwnerEventVersion"]!,
                 sessions = page.Sessions.Select(session => new
                 {
                     sessionId = session.SessionId, final = Describe(token, session.SessionId, session.Final),
@@ -40,7 +42,7 @@ public static class OwnerEndpoints
         });
         api.MapGet("/sessions/{sessionId}", async (string token, string sessionId, HttpContext context, IPhotoStore store, CancellationToken cancellation) =>
         {
-            if (!GalleryContract.ValidHash(sessionId)) return Results.NotFound();
+            if (!GalleryContract.ValidHash(sessionId) || Event(context).IsHidden(sessionId)) return Results.NotFound();
             var photos = await store.FindAsync(sessionId, cancellation);
             if (photos.Final?.EventId != Event(context).EventId) return Results.NotFound();
             return Results.Ok(new
@@ -53,7 +55,7 @@ public static class OwnerEndpoints
         });
         api.MapGet("/media/{sessionId}/{id}", async (string sessionId, string id, bool? download, bool? file, HttpContext context, IPhotoStore store, CancellationToken cancellation) =>
         {
-            if (!GalleryContract.ValidHash(sessionId) || !GalleryContract.ValidAssetId(id)) return Results.NotFound();
+            if (!GalleryContract.ValidHash(sessionId) || !GalleryContract.ValidAssetId(id) || Event(context).IsHidden(sessionId)) return Results.NotFound();
             var final = await store.GetAsync(sessionId, "final", cancellation);
             if (final?.EventId != Event(context).EventId) return Results.NotFound();
             var photo = id == "final" ? final : await store.GetAsync(sessionId, id, cancellation);
@@ -82,7 +84,7 @@ public static class OwnerEndpoints
                         var page = await events.ListFinalsAsync(record.EventId, cursor, cancellation);
                         foreach (var session in page.Sessions)
                         {
-                            if (!seen.Add(session.SessionId)) continue;
+                            if (!seen.Add(session.SessionId) || record.IsHidden(session.SessionId)) continue;
                             var gallery = await photos.FindAsync(session.SessionId, cancellation);
                             if (gallery.Final?.EventId != record.EventId) continue;
                             foreach (var photo in new[] { gallery.Final }.Concat(gallery.Originals))

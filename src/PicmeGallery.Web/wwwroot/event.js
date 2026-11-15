@@ -3,7 +3,7 @@
   const byId = id => document.getElementById(id), status = byId("event-status");
   const token = /^\/e\/([A-Za-z0-9_-]{43})\/?$/.exec(location.pathname)?.[1];
   const grid = byId("event-photos"), dialog = byId("event-preview"), sessions = new Map();
-  let nextCursor, busy = false, timer, returnFocus, unavailable = false;
+  let visibilityVersion, nextCursor, busy = false, timer, returnFocus, unavailable = false;
   function notice(message, error = false) { status.textContent = message; status.classList.toggle("error", error); }
   function preview(session, trigger) {
     returnFocus = trigger; byId("event-preview-image").src = session.final.previewUrl;
@@ -45,7 +45,7 @@
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 120000);
     try {
       let cursor = more ? nextCursor : null, result;
-      do {
+      while (true) {
         const response = await fetch(`/api/event/${token}` + (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""), { cache: "no-store", signal: controller.signal });
         if (response.status === 404) {
           unavailable = true; sessions.clear(); grid.replaceChildren(); byId("download-all").hidden = true;
@@ -56,14 +56,20 @@
         }
         if (!response.ok) throw new Error("The event gallery is temporarily unavailable. Please try again.");
         result = await response.json(); byId("event-title").textContent = result.name; document.title = result.name + " · PICME";
+        if (visibilityVersion !== undefined && result.visibilityVersion !== visibilityVersion) {
+          if (dialog.open) dialog.close(); sessions.clear(); grid.replaceChildren(); nextCursor = null;
+          visibilityVersion = result.visibilityVersion;
+          if (cursor) { cursor = null; continue; }
+        }
+        visibilityVersion = result.visibilityVersion;
         result.sessions.forEach(add); cursor = result.nextCursor;
-        if (!scan || document.hidden) break;
-      } while (cursor);
+        if (!scan || document.hidden || !cursor) break;
+      }
       nextCursor = cursor; byId("more-photos").hidden = !nextCursor;
       byId("download-all").href = result.downloadAllUrl; byId("download-all").hidden = !sessions.size;
       byId("download-note").hidden = !sessions.size; byId("event-empty").hidden = !!sessions.size;
       byId("session-count").textContent = `${sessions.size} ${sessions.size === 1 ? "moment" : "moments"} loaded`;
-      notice(sessions.size ? "Final prints only. Open All photos for originals." : "Waiting for the booth’s first uploads. This page checks automatically.");
+      notice(sessions.size ? "Final prints only. Open All photos for originals." : "No moments are available yet. This page checks automatically.");
     } catch (error) { notice(error.name === "AbortError" ? "The gallery is taking a while to open. Please try Refresh gallery." : error.message, true); }
     finally {
       clearTimeout(timeout); busy = false; byId("refresh-event").disabled = byId("more-photos").disabled = false;

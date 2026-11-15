@@ -142,7 +142,7 @@ Implementation entry points: [Program.cs](../src/PicmeGallery.Web/Program.cs), [
 
 Mutable Hot-tier records use `gallery/events/{eventId}.json`; hashed access pointers use `gallery/access/{tokenHash}.json`. The access pointer is created before an ETag-conditional event-record update. The event record is authoritative: a conflicting/interrupted update leaves no active new link, and old pointers cannot authorize revoked tokens. Event IDs must match the booth’s captured tags. This registry is optional for guest delivery and adds no booth registration dependency.
 
-`/e/{token}` shows paginated finals only, discovered by validated EventId/Kind tags. `/e/{token}/s/{sessionHash}` reuses the guest-style final/original viewer through event-scoped APIs, without recovering or exposing guest tokens. Every event API request resolves the active owner token; individual media/session requests also validate membership in that event. Azure tag-index consistency delays apply to event-wide discovery.
+`/e/{token}` shows paginated finals only, discovered by validated EventId/Kind tags. `/e/{token}/s/{sessionHash}` reuses the guest-style final/original viewer through event-scoped APIs, without recovering or exposing guest tokens. Every event API request resolves the active owner token; individual media/session requests also validate membership in that event. The optional `HiddenSessionIds` array in the event record denies owner access to selected session hashes without modifying media or guest delivery. Event listings and ZIPs filter this array server-side. Missing visibility fields in legacy records mean all sessions are visible. Azure tag-index consistency delays apply to event-wide discovery.
 
 | Route | Behavior |
 | --- | --- |
@@ -150,9 +150,14 @@ Mutable Hot-tier records use `gallery/events/{eventId}.json`; hashed access poin
 | `POST /api/admin/login`, `POST /api/admin/logout` | Configured-credential sign-in and cookie sign-out. |
 | `GET/POST /api/admin/events` | Authenticated, paginated event list or event-link creation. |
 | `POST /api/admin/events/{eventId}/replace` or `/revoke` | Authenticated CSRF-protected, version-conditional link mutation. |
-| `GET /api/event/{token}` | Event name and one page of final-only session cards; protected continuation cursor. |
+| `GET /api/admin/events/{eventId}/sessions` | Authenticated paginated final cards, including hidden status; `filter=all`, `visible`, or `hidden`. |
+| `GET /api/admin/events/{eventId}/sessions/{hash}/final` | Authenticated final preview, including owner-hidden sessions. |
+| `POST /api/admin/events/{eventId}/sessions/{hash}/visibility` | CSRF-protected, event-scoped ETag update of `HiddenSessionIds`; body `{hidden, version}`. |
+| `GET /api/event/{token}` | Event name, visibility version, and one page of owner-visible final cards; protected continuation cursor. |
 | `GET /api/event/{token}/sessions/{hash}` | That event session’s final and originals. |
 | `GET /api/event/{token}/media/{hash}/{id}` | Validated event-scoped preview/download SAS, or original same-origin bytes with `?file=true`. |
-| `GET /api/event/{token}/download` | Streaming ZIP of all available finals and originals across all pages, with a per-instance archive concurrency limit. |
+| `GET /api/event/{token}/download` | Streaming ZIP of all owner-visible finals and originals across all pages, with a per-instance archive concurrency limit. |
 
 ZIP creation streams photo bodies and retains only archive/session bookkeeping in memory. The .NET 10 entry-stream wrapper can write its closing ZIP descriptor synchronously; synchronous response IO is enabled for this route only, while photo transfer and archive finalization use async IO. A stream failure aborts the response instead of delivering an apparently successful incomplete archive. Request duration and host quotas still apply. No durable ZIP job or archive storage is provisioned.
+
+`/admin/events/{eventId}/sessions` is the authenticated management UI. Visibility edits use the same conditional event-record save as link changes, so concurrent edits return 409 and cannot silently discard a visibility/token update. Owner gallery clients reconcile the record version and restart from the first page when a change is observed; owner session viewers clear loaded content on a subsequent denied API check. Admin preview access is separate from owner access. Guest routes never consult the hidden-session list. Already issued SAS URLs and in-progress requests retain their existing lifetime/snapshot semantics.
