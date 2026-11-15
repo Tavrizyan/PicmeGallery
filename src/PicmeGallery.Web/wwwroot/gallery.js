@@ -154,10 +154,13 @@
         const hint = document.createElement("span"); hint.className = "preview-hint"; hint.textContent = "Preview ↗"; hint.setAttribute("aria-hidden", "true");
         preview.append(image, hint); preview.addEventListener("click", () => openPreview(photo.id, preview));
         const actions = document.createElement("div"); actions.className = "card-actions";
-        const link = document.createElement("a"); link.href = photo.downloadUrl; link.download = photo.fileName; link.textContent = `Photo ${number} ↓`; link.setAttribute("aria-label", `Download ${label.toLowerCase()}`);
-        actions.append(link);
+        const photoLabel = document.createElement("span"); photoLabel.className = "photo-label"; photoLabel.textContent = `Photo ${number}`;
+        const link = document.createElement("a"); link.className = "button secondary download-button"; link.href = photo.downloadUrl; link.download = photo.fileName; link.setAttribute("aria-label", `Download ${label.toLowerCase()}`);
+        const icon = document.createElement("img"); icon.className = "download-icon"; icon.src = "/icons/download.svg"; icon.alt = ""; icon.width = 20; icon.height = 20; icon.setAttribute("aria-hidden", "true");
+        link.append(icon, document.createTextNode("Download"));
+        actions.append(photoLabel, link);
         if (mobile) {
-          const save = document.createElement("button"); save.type = "button"; save.className = "save-small"; save.textContent = "Save"; save.setAttribute("aria-label", `Save ${label.toLowerCase()} to phone`);
+          const save = document.createElement("button"); save.type = "button"; save.className = "save-small"; save.textContent = "Save to phone"; save.setAttribute("aria-label", `Save ${label.toLowerCase()} to phone`);
           save.addEventListener("click", () => openPreview(photo.id, save)); actions.append(save);
         }
         card.append(preview, actions); grid.append(card);
