@@ -139,6 +139,8 @@
       const response = await fetch(galleryUrl, { cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(response.status === 404 ? (ownerSession ? "This event link or session is unavailable. Ask the organizer for a current link." : "This photo link could not be opened. Please scan the QR on your print again.") : "Your photos are temporarily unavailable. Please try again shortly.");
       const photos = await response.json(); status.classList.remove("error");
+      byId("guest-event-id").textContent = photos.eventId || "";
+      byId("event-info").hidden = !photos.eventId;
       if (photos.final) {
         assets.set("final", { ...photos.final, label: photos.final.contentType === "image/gif" ? "Your animated moment" : "Your finished print" });
         const image = byId("final-image");

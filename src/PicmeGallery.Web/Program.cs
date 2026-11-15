@@ -7,6 +7,7 @@ builder.Services.AddSingleton<AzurePhotoStore>();
 builder.Services.AddSingleton<IPhotoStore>(services => services.GetRequiredService<AzurePhotoStore>());
 builder.Services.AddSingleton<IEventPhotoStore>(services => services.GetRequiredService<AzurePhotoStore>());
 builder.Services.AddSingleton<IEventStore, AzureEventStore>();
+builder.Services.AddSingleton<EventCatalog>();
 builder.Services.AddGalleryAdministration(builder.Configuration);
 var app = builder.Build();
 
@@ -60,6 +61,7 @@ app.MapGet("/api/guest/{token}", async (string token, IPhotoStore store, Cancell
     return Results.Ok(new
     {
         state = photos.Final is null ? "waiting" : photos.Originals.Count >= expected ? "ready" : "uploading",
+        eventId = photos.Final?.EventId,
         expectedOriginals = expected, uploadedOriginals = photos.Originals.Count,
         final = photos.Final is null ? null : Describe(photos.Final), originals = photos.Originals.Select(Describe).ToArray()
     });

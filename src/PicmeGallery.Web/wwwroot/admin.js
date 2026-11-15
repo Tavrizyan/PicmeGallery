@@ -28,7 +28,10 @@
   function eventCard(event) {
     const card = document.createElement("article"); card.className = "event-row";
     const heading = document.createElement("div"), name = document.createElement("h2"), detail = document.createElement("p");
-    name.textContent = event.name; detail.textContent = `${event.eventId} · ${event.active ? "Active link" : "Link revoked"}`;
+    name.textContent = event.name;
+    const created = new Date(event.createdUtc);
+    const createdLabel = Number.isNaN(created.valueOf()) ? "" : ` · Created ${created.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`;
+    detail.textContent = `${event.eventId} · ${event.active ? "Active link" : "Link revoked"}${createdLabel}`;
     detail.className = "subtext"; heading.append(name, detail);
     const actions = document.createElement("div"); actions.className = "actions";
     if (event.ownerPath) {

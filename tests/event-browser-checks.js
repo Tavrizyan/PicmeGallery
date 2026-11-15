@@ -20,7 +20,7 @@ async (page) => {
       if (path.endsWith('/logout')) { signedIn = false; return route.fulfill({ json: { success: true } }); }
       if (path === '/api/admin/events' && !body) return route.fulfill({ json: { events: records, nextCursor: null } });
       if (path === '/api/admin/events') {
-        records = [{ eventId: body.eventId, name: body.name, active: true, ownerPath: '/e/' + token, version: String(++revision) }];
+        records = [{ eventId: body.eventId, name: body.name, createdUtc: "2026-11-15T12:00:00Z", registered: true, active: true, ownerPath: '/e/' + token, version: String(++revision) }, ...records.filter(record => record.eventId !== body.eventId)];
         return route.fulfill({ json: { ownerPath: records[0].ownerPath } });
       }
       const revoke = path.endsWith('/revoke');
@@ -31,7 +31,7 @@ async (page) => {
       if (unavailable) return route.fulfill({ status: 404, json: { message: 'Unavailable' } });
       const url = new URL(route.request().url());
       if (url.pathname.includes('/sessions/')) return route.fulfill({ json: { state: 'ready', expectedOriginals: 2, uploadedOriginals: 2,
-        final: photo(first), originals: [photo(first, '001.jpg'), photo(first, '002.jpg')] } });
+        eventId: 'anna-david', final: photo(first), originals: [photo(first, '001.jpg'), photo(first, '002.jpg')] } });
       return route.fulfill({ json: { name: 'Anna & David’s celebration', sessions: [session(url.searchParams.has('cursor') ? second : first)], nextCursor: url.searchParams.has('cursor') ? null : 'next-page', downloadAllUrl: `/api/event/${token}/download` } });
     });
     const errors = [];
@@ -41,8 +41,10 @@ async (page) => {
     await tab.waitForFunction(() => document.getElementById('admin-status').textContent.includes('Incorrect'));
     await tab.locator('#password').fill('browser-test-password'); await tab.locator('#sign-in').click();
     await tab.locator('#events-panel').waitFor({ state: 'visible' });
+    check(await tab.locator('#empty-events').isVisible(), 'Admin lists only explicitly created owner links');
     await tab.locator('#event-name').fill('Anna & David’s celebration'); await tab.locator('#event-id').fill('anna-david'); await tab.locator('#create-button').click();
-    await tab.locator('.event-row').waitFor();
+    await tab.waitForFunction(() => document.querySelectorAll('.event-row').length === 1);
+    check((await tab.locator('.event-row h2').first().textContent()) === 'Anna & David’s celebration', 'Newest event appears first');
     check(await tab.locator('#new-owner-url').inputValue() === base + '/e/' + token, 'Owner link uses public browser origin');
     await tab.getByRole('button', { name: 'Replace link', exact: true }).click();
     await tab.locator('#cancel-action').click();
@@ -75,6 +77,7 @@ async (page) => {
     }
     await tab.getByRole('link', { name: 'All photos for moment 1', exact: true }).click();
     await tab.locator('#originals .photo-card').nth(1).waitFor();
+    check(await tab.locator('#guest-event-id').textContent() === 'anna-david', 'Session viewer displays the Event ID');
     check(await tab.locator('#event-back').isVisible(), 'Owner session has event navigation');
     check(await tab.locator('#refresh').isHidden(), 'Completed owner session hides Check for photos');
     await tab.locator('#preview-final').click(); await tab.keyboard.press('ArrowRight');

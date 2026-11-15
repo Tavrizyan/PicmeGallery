@@ -16,7 +16,7 @@ async (page) => {
     });
     await page.route('**/api/guest/**', route => apiError
       ? route.fulfill({ status: 503, json: { message: 'Unavailable' } })
-      : route.fulfill({ json: { state, expectedOriginals: 3, uploadedOriginals: originals.length,
+      : route.fulfill({ json: { state, eventId: state === 'waiting' ? null : 'anna-david', expectedOriginals: 3, uploadedOriginals: originals.length,
         final: state === 'waiting' ? null : asset('final'), originals: state === 'waiting' ? [] : originals.map(asset) } }));
     await page.route('**/api/media/**', route => {
       if (fileError && route.request().url().includes('file=true')) return route.fulfill({ status: 503 });
@@ -42,6 +42,7 @@ async (page) => {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await open();
     await page.locator('.photo-card').nth(2).waitFor();
+    check(await page.locator('#event-info').isVisible() && await page.locator('#guest-event-id').textContent() === 'anna-david', 'Guest QR gallery displays the Event ID');
     check((await page.locator('.photo-card').evaluateAll(cards => cards.map(card => card.dataset.photoId))).join() === '001.jpg,002.jpg,003.jpg', 'Photos sorted');
     await page.locator('#preview-final').click();
     await page.locator('#preview-image').evaluate(image => {
@@ -122,6 +123,7 @@ async (page) => {
     gifFinal = false; state = 'waiting'; originals = [];
     await open();
     await page.waitForFunction(() => document.getElementById('status').textContent.includes('checks automatically'));
+    check(await page.locator('#event-info').isHidden(), 'Unknown event is hidden while waiting');
     check(await page.locator('#waiting').isVisible() && await page.locator('#final-section').isHidden(), 'Waiting state');
     check(await page.locator('#refresh').isVisible(), 'Waiting gallery offers manual check');
     state = 'uploading'; originals = ['001.jpg'];

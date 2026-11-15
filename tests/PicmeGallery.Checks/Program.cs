@@ -60,9 +60,11 @@ internal static class Checks
         Check((await client.GetAsync("/api/guest/42")).StatusCode == HttpStatusCode.NotFound, "Bad URL secret rejected");
         var waiting = await client.GetFromJsonAsync<JsonElement>("/api/guest/" + otherToken);
         Check(waiting.GetProperty("state").GetString() == "waiting" && waiting.GetProperty("originals").GetArrayLength() == 0, "Unknown guest sees no other photos");
+        Check(waiting.GetProperty("eventId").ValueKind == JsonValueKind.Null, "Unknown guest cannot learn another event ID");
         store.FinalAvailable = true;
         var partial = await client.GetFromJsonAsync<JsonElement>("/api/guest/" + token);
         Check(partial.GetProperty("state").GetString() == "uploading" && partial.GetProperty("expectedOriginals").GetInt32() == 2, "Final appears while originals pending");
+        Check(partial.GetProperty("eventId").GetString() == "anna-david", "Guest QR gallery exposes its own Event ID as soon as the final is available");
         store.OriginalsAvailable = 2;
         var ready = await client.GetFromJsonAsync<JsonElement>("/api/guest/" + token);
         Check(ready.GetProperty("state").GetString() == "ready" && ready.GetProperty("originals").GetArrayLength() == 2, "Complete session includes only its originals");

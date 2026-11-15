@@ -56,6 +56,22 @@ internal static class OwnerChecks
         var record = listing.GetProperty("events")[0];
         Check(record.GetProperty("ownerPath").GetString() == path && record.GetProperty("name").GetString() == "Test celebration", "Admin can recover and copy existing link");
         Check((await client.GetAsync("/api/admin/events?cursor=tampered")).StatusCode == HttpStatusCode.BadRequest, "Tampered admin cursor rejected");
+        for (int i = 0; i < 35; i++)
+        {
+            string id = $"managed-{i:00}";
+            store.Values[id] = new(new(id, id, DateTimeOffset.Parse("2024-01-01T00:00:00Z").AddDays(i / 2), null, null), "fixture-" + i);
+        }
+        var catalogRows = new List<JsonElement>(); string? catalogCursor = null; int catalogPages = 0;
+        do
+        {
+            var catalogPage = await client.GetFromJsonAsync<JsonElement>("/api/admin/events" + (catalogCursor is null ? "" : "?cursor=" + Uri.EscapeDataString(catalogCursor)));
+            catalogRows.AddRange(catalogPage.GetProperty("events").EnumerateArray());
+            catalogCursor = catalogPage.GetProperty("nextCursor").GetString(); catalogPages++;
+        } while (catalogCursor is not null);
+        Check(catalogPages == 2 && catalogRows.Count == 36 && catalogRows.Select(row => row.GetProperty("eventId").GetString()).Distinct().Count() == 36, "Admin catalog reads all managed event pages without duplicates");
+        Check(catalogRows[0].GetProperty("eventId").GetString() == "test-event" && catalogRows[0].GetProperty("name").GetString() == "Test celebration", "Managed event creation dates determine ordering");
+        Check(catalogRows.Zip(catalogRows.Skip(1)).All(pair => pair.First.GetProperty("createdUtc").GetDateTimeOffset() >= pair.Second.GetProperty("createdUtc").GetDateTimeOffset()), "Event creation dates are descending across page boundaries");
+        Check(catalogRows[1].GetProperty("eventId").GetString() == "managed-34" && catalogRows[2].GetProperty("eventId").GetString() == "managed-32" && catalogRows[3].GetProperty("eventId").GetString() == "managed-33", "Equal-date events have stable Event ID ordering");
         using var owner = factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), AllowAutoRedirect = false });
         string api = "/api/event/" + token;
         var first = await owner.GetFromJsonAsync<JsonElement>(api);
@@ -139,7 +155,12 @@ internal static class OwnerChecks
     {
         public readonly Dictionary<string, StoredEvent> Values = [];
         private int revision;
-        public Task<EventListPage> ListAsync(string? continuation, CancellationToken cancellation) => Task.FromResult(new EventListPage(Values.Values.ToArray(), null));
+        public Task<EventListPage> ListAsync(string? continuation, CancellationToken cancellation)
+        {
+            int offset = continuation is null ? 0 : int.Parse(continuation);
+            var entries = Values.Values.Skip(offset).Take(12).ToArray();
+            return Task.FromResult(new EventListPage(entries, offset + entries.Length < Values.Count ? (offset + entries.Length).ToString() : null));
+        }
         public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) => Task.FromResult(Values.GetValueOrDefault(eventId));
         public Task<StoredEvent?> ResolveAsync(string hash, CancellationToken cancellation) => Task.FromResult(Values.Values.FirstOrDefault(item => item.Record.TokenHash == hash));
         public Task SaveAsync(EventRecord record, string? expectedVersion, CancellationToken cancellation)

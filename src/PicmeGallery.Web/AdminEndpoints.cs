@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
@@ -99,11 +100,22 @@ public static class AdminEndpoints
             return Results.Ok(new { success = true });
         }).RequireRateLimiting("admin-login");
         api.MapPost("/logout", async (HttpContext context) => { await context.SignOutAsync(Scheme); return Results.Ok(new { success = true }); }).RequireAuthorization();
-        api.MapGet("/events", async (string? cursor, IEventStore store, IDataProtectionProvider protection, CancellationToken cancellation) =>
+        api.MapGet("/events", async (string? cursor, EventCatalog catalog, IDataProtectionProvider protection, CancellationToken cancellation) =>
         {
             if (!Cursors.TryRead(protection, "admin", cursor, out string? continuation)) return Results.BadRequest(new { message = "Invalid page. Refresh the event list." });
-            var page = await store.ListAsync(continuation, cancellation);
-            return Results.Ok(new { events = page.Events.Select(item => Describe(item, protection)), nextCursor = Cursors.Write(protection, "admin", page.Continuation) });
+            AdminEventCursor? after = null;
+            if (continuation is not null)
+            {
+                try { after = JsonSerializer.Deserialize<AdminEventCursor>(continuation); }
+                catch (JsonException) { return Results.BadRequest(new { message = "Invalid page. Refresh the event list." }); }
+                if (after is null || !GalleryContract.ValidEventId(after.EventId ?? "")) return Results.BadRequest(new { message = "Invalid page. Refresh the event list." });
+            }
+            var all = await catalog.ListAsync(cancellation);
+            var remaining = all.Where(item => after is null || item.Record.CreatedUtc < after.CreatedUtc ||
+                (item.Record.CreatedUtc == after.CreatedUtc && string.CompareOrdinal(item.Record.EventId, after.EventId) > 0)).Take(31).ToArray();
+            var page = remaining.Take(30).ToArray();
+            string? next = remaining.Length > 30 ? JsonSerializer.Serialize(new AdminEventCursor(page[^1].Record.CreatedUtc, page[^1].Record.EventId)) : null;
+            return Results.Ok(new { events = page.Select(item => Describe(item, protection)), nextCursor = Cursors.Write(protection, "admin", next) });
         }).RequireAuthorization();
         api.MapPost("/events", async (CreateEventInput input, IEventStore store, IDataProtectionProvider protection, CancellationToken cancellation) =>
         {

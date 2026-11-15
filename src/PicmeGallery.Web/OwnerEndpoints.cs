@@ -46,6 +46,7 @@ public static class OwnerEndpoints
             return Results.Ok(new
             {
                 state = photos.Originals.Count >= photos.Final.ExpectedOriginals ? "ready" : "uploading",
+                eventId = photos.Final.EventId,
                 expectedOriginals = photos.Final.ExpectedOriginals, uploadedOriginals = photos.Originals.Count,
                 final = Describe(token, sessionId, photos.Final), originals = photos.Originals.Select(photo => Describe(token, sessionId, photo))
             });
