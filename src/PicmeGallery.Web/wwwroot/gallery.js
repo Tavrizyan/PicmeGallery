@@ -118,6 +118,7 @@
   }
   async function load(manual = false) {
     if (busy) return;
+    let ready = false;
     clearTimeout(timer); busy = true; refresh.disabled = true;
     if (manual) {
       polls = 0;
@@ -149,7 +150,7 @@
         const preview = document.createElement("button"); preview.type = "button"; preview.className = "photo-preview"; preview.setAttribute("aria-label", `Preview ${label.toLowerCase()}`);
         const image = document.createElement("img"); image.loading = "lazy"; image.alt = label; image.src = photo.previewUrl;
         image.dataset.previewUrl = photo.previewUrl;
-        image.addEventListener("error", () => { image.dataset.failed = "true"; });
+        image.addEventListener("error", () => { image.dataset.failed = "true"; refresh.hidden = false; });
         const hint = document.createElement("span"); hint.className = "preview-hint"; hint.textContent = "Preview ↗"; hint.setAttribute("aria-hidden", "true");
         preview.append(image, hint); preview.addEventListener("click", () => openPreview(photo.id, preview));
         const actions = document.createElement("div"); actions.className = "card-actions";
@@ -169,16 +170,21 @@
       if (photos.state === "ready") status.textContent = "Your photos are ready. Tap a photo to preview, download, or save it to your phone.";
       else if (photos.final) status.textContent = `Your print is ready. Original photos are still uploading (${Math.max(originals, photos.uploadedOriginals)} of ${photos.expectedOriginals}).`;
       else status.textContent = "Your photos may still be uploading. This page checks automatically.";
+      ready = photos.state === "ready";
       polls++;
       if (photos.state !== "ready" && polls < 40 && !document.hidden) timer = setTimeout(() => load(), polls < 5 ? 5000 : 15000);
     } catch (error) {
       status.textContent = error.name === "AbortError" ? "The booth photos are taking a little longer to open. Please try again." : error.message;
       status.classList.add("error");
-    } finally { clearTimeout(timeout); busy = false; refresh.hidden = false; refresh.disabled = false; }
+    } finally {
+      clearTimeout(timeout); busy = false; refresh.disabled = false;
+      refresh.hidden = ready && !!byId("final-image").getAttribute("src") && !grid.querySelector('img[data-failed="true"]');
+    }
   }
   refresh.addEventListener("click", () => load(true));
   document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(timer); else load(); });
   byId("final-image").addEventListener("error", event => {
+    refresh.hidden = false;
     event.target.removeAttribute("src"); status.textContent = "The image could not load. Use Check for photos to try again.";
   });
   load();
