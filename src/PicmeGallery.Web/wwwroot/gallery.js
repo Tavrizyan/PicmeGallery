@@ -160,7 +160,7 @@
         link.append(icon, document.createTextNode("Download"));
         actions.append(photoLabel, link);
         if (mobile) {
-          const save = document.createElement("button"); save.type = "button"; save.className = "save-small"; save.textContent = "Save to phone"; save.setAttribute("aria-label", `Save ${label.toLowerCase()} to phone`);
+          const save = document.createElement("button"); save.type = "button"; save.className = "save-small"; save.textContent = "Save"; save.setAttribute("aria-label", `Save ${label.toLowerCase()} to phone`);
           save.addEventListener("click", () => openPreview(photo.id, save)); actions.append(save);
         }
         card.append(preview, actions); grid.append(card);
