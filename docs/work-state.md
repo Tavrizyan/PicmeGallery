@@ -1,6 +1,33 @@
 # Deployment work handoff
 
-Last updated: 2026-11-13 (Asia/Yerevan). Read this file before continuing from another laptop. It records work in progress, not a completed deployment. Also read [deployment.md](deployment.md), [deployment-record.md](deployment-record.md), and the owner's AGENTS.md instructions.
+Last updated: 2026-11-15 (Asia/Yerevan). Read this file before continuing from another laptop. It records work in progress, not a completed deployment. Also read [deployment.md](deployment.md), [deployment-record.md](deployment-record.md), and any applicable AGENTS.md instructions.
+
+## Current resume checkpoint — 2026-11-15
+
+This checkpoint supersedes the historical 2026-11-13 handoff below.
+
+- Owner explicitly authorized deploying in another Azure region using Free F1 after the Poland app remained in QuotaExceeded. The owner subsequently explicitly approved deleting the obsolete Poland app and plan. Both were deleted and their absence verified in the resource group listing. Frankfurt storage remains in use.
+- Azure identity verified: `karo.tavrizyan.96@hotmail.com`, subscription `fdfffc85-91e9-45e6-8355-2e957bd82812` / MainSubscription. GitHub identity verified: `Tavrizyan`, repository ADMIN permission.
+- Created `picme-gallery-plan-weu` in West Europe, in existing resource group `picme-gallery-rg`. Subsequent plan read verified F1 / Free.
+- Created Linux .NET 10 app `picme-gallery-weu`, HTTPS only, startup `dotnet PicmeGallery.Web.dll`. Initial state Running / Normal; SCM endpoint returned 401 rather than the old app's 403.
+- Assigned existing deployment service principal `d6aaa86d-0e68-4583-afa4-1c3be054b0bc` Website Contributor scoped only to the new Web App. Existing OIDC identity reused.
+- Updated GitHub `gallery` variables: `AZURE_WEBAPP_NAME=picme-gallery-weu`, `AZURE_ORIGIN=https://picme-gallery-weu.azurewebsites.net/`. All five required secret names are present; secret values were not retrieved.
+- Local and remote main match `82e1f7c373ca99b5c0831aa9e11c4a0dc042ea65`. This revision's checks, Worker tests, publish and artifact upload passed. [Run 43454552251](https://github.com/Tavrizyan/PicmeGallery/actions/runs/43454552251) previously failed OneDeploy in Poland with Site Disabled / 403. The failed-job rerun targeting West Europe (attempt 3) completed successfully: Azure deployment, origin liveness, Cloudflare Worker deployment and public liveness all passed. Worker revision: `4abb4cf5-07ee-45a7-b4a3-bf1d8df479d1`.
+- Owner confirmed adding private settings to the new app. Public `/health` returned 200 / running, and `/api/guest/{synthetic-random-token}` returned 200 / waiting with zero assets. This exercises storage tag query and deterministic/prefix lookups for an unknown session without exposing real guest tokens or secret values. Actual asset read/signing/download tests remain pending. Requests used an edge IP from public DNS with original hostname/SNI because local DNS still retained a negative result.
+- Cloudflare Worker `picme-gallery-proxy` is deployed on `photos.picme.am`, targeting the new West Europe origin. Public DNS resolvers 1.1.1.1 and 8.8.8.8 return the new record. This laptop initially retained a negative DNS result; HTTPS checks using the resolved edge IP with original hostname/SNI passed: `/health` reports PicmeGallery / running, landing page HTTP 200, Cache-Control private/no-store, CF cache status DYNAMIC. GitHub public liveness also passed. Root/www were not changed. Successful deployment establishes token permission for this deployment but does not replace a review of zone-wide cache/logging configuration.
+- Previous Poland investigation: enabled subscription, spending limit Off, F1 plan Ready / Running, app QuotaExceeded / Exceeded. Start and restart did not clear it. Filesystem usage was 348,160 / 1,073,741,824 bytes; no specific enforced quota was identified. See [Azure support note](azure-quota-support.md).
+- No application source changes, commits or pushes were made during this resume. Local checkpoint documentation is modified. After approved Poland cleanup, the resource group contains only `picmegallerystorage`, `picme-gallery-plan-weu`, and `picme-gallery-weu`.
+
+Next steps:
+
+1. Deployment completed successfully; use West Europe as the current origin and retain the successful run/artifact for rollback.
+2. New-app settings are owner-confirmed and unknown-session storage lookup passed. Continue with a real uploaded booth session.
+3. Verify origin/public health and then complete live storage/guest/download/GIF/printed-QR checks with a retained booth session. Liveness alone does not verify storage.
+4. Record deployed commit and Worker revision. Old Poland app `picme-gallery` and plan `picme-gallery-plan` were deleted with explicit owner approval on November 15; public health still returned running afterward. Wrong-subscription cleanup remains separately unapproved.
+
+## Historical handoff — 2026-11-13
+
+The following preserves the earlier decisions, resource identifiers, and approval boundaries. Use the current checkpoint above for repository, authentication, and deployment status.
 
 ## Objective and decisions
 

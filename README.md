@@ -31,6 +31,18 @@ dotnet publish src/PicmeGallery.Web -c Release -o artifacts/publish
 
 Checks use a fake store for HTTP access isolation, waiting/partial/ready states, old non-expiring tokens, private headers, and error sanitization. They require no cloud account. A real storage test is still needed for Cold/index-tag permissions and account support.
 
+## Gallery design and phone saving
+
+The gallery reuses the logos, favicons, Apple touch icon, background photography, purple colors (`#251b62` / `#a84da7`), and Lato typeface from the `web.picme.am` website. Branding assets and fonts are served locally from `wwwroot/brand`; the main Picme website is unchanged.
+
+Tap a finished print or original to open its preview. Use the previous/next buttons, arrow keys, or a horizontal swipe to browse; Escape or the close button returns focus to the photo. Animated GIF finals remain animated.
+
+On iPhones/iPads, **Save to phone** opens the preview and prepares the original file; **Save to Photos** then opens the native share sheet, where the guest chooses **Save Image**. Android guests can use **Save / share** with a compatible Photos/Gallery app, or download the original and find it in Downloads/the gallery’s Downloads album. The page also explains long-press saving. Availability and wording depend on the browser and installed apps. A website cannot silently write to the phone’s photo library.
+
+File sharing requires HTTPS (localhost works for development) and browser support for `navigator.canShare({ files })`. It uses an authenticated, uncached same-origin stream at `/api/media/{token}/{id}?file=true`, preserving the original bytes and stored content type without requiring Azure CORS. Existing preview/download redirects remain available. Only the current preview is prepared, requests are aborted when changing/closing the preview, and files over 50 MiB use the download/long-press fallback to limit phone memory usage. Cancellation is silent; failed/unsupported sharing keeps download and long-press saving available.
+
+With the local app on port 5078, `tests/gallery-browser-checks.js` can be run through the Playwright `browser_run_code` tool’s `filename` input. It mocks private API/media responses and native sharing, checking responsive layouts, previews, keyboard navigation, focus restoration, sorting, refresh, file activation, cancellation, failures, GIFs, and waiting/partial/retry states. It writes temporary screenshots under `/tmp`. Before rollout, verify **Save Image** on an actual iPhone in Safari and the download/share choices on an actual Android phone over HTTPS, including GIFs and in-app QR browsers.
+
 ## Blob contract, version 1
 
 The booth generates a permanent 32-byte random Base64URL token. `GuestKeyHash` is lowercase hex SHA-256 of the token's UTF-8 text. The raw token is not uploaded into blob names/tags.

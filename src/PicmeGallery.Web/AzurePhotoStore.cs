@@ -66,6 +66,11 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore
         }
         return null;
     }
+    public async Task<Stream> OpenReadAsync(PhotoAsset asset, CancellationToken token)
+    {
+        var download = await Container().GetBlobClient(asset.BlobName).DownloadStreamingAsync(cancellationToken: token);
+        return download.Value.Content;
+    }
     public Uri DownloadUrl(PhotoAsset asset, bool attachment)
     {
         var blob = Container().GetBlobClient(asset.BlobName);
@@ -73,8 +78,7 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore
         var sas = new BlobSasBuilder(BlobSasPermissions.Read, DateTimeOffset.UtcNow.AddMinutes(5))
         {
             Protocol = SasProtocol.Https, CacheControl = "private, no-store",
-            ContentDisposition = (attachment ? "attachment" : "inline") + "; filename=\"picme-" +
-                (asset.Id == "final" ? Path.GetFileName(asset.BlobName) : "original-" + asset.Id) + "\""
+            ContentDisposition = (attachment ? "attachment" : "inline") + "; filename=\"" + asset.FileName + "\""
         };
         return blob.GenerateSasUri(sas);
     }

@@ -32,6 +32,7 @@ internal static class Checks
         Check(asset is not null, "Valid Cold upload contract is accepted");
         var gifAsset = GalleryContract.Parse(hash, "final", 120, "image/gif", "Cold", tags, metadata);
         Check(gifAsset is not null && gifAsset.BlobName.EndsWith("/final.gif"), "GIF sessions resolve their original animated final");
+        Check(GalleryContract.Parse(hash, "final", 120, "image/png", "Cold", tags, metadata)?.ContentType == "image/png", "Original storage content type is preserved independently of the blob extension");
         Check(asset!.CapturedUtc!.StartsWith("2020"), "Old captures do not expire");
         var signingConfiguration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -65,6 +66,24 @@ internal static class Checks
         store.OriginalsAvailable = 2;
         var ready = await client.GetFromJsonAsync<JsonElement>("/api/guest/" + token);
         Check(ready.GetProperty("state").GetString() == "ready" && ready.GetProperty("originals").GetArrayLength() == 2, "Complete session includes only its originals");
+        var finalDescription = ready.GetProperty("final");
+        Check(finalDescription.GetProperty("fileUrl").GetString() == $"/api/media/{token}/final?file=true" &&
+            finalDescription.GetProperty("contentType").GetString() == "image/jpeg" &&
+            finalDescription.GetProperty("fileName").GetString() == "picme-final.jpg", "Native sharing uses same-origin files with original type and filename");
+        var file = await client.GetAsync($"/api/media/{token}/001.jpg?file=true");
+        Check(file.StatusCode == HttpStatusCode.OK && file.Headers.Location is null &&
+            file.Content.Headers.ContentType?.MediaType == "image/jpeg" &&
+            (await file.Content.ReadAsByteArrayAsync()).SequenceEqual(FakeStore.ImageBytes), "Native sharing streams original bytes without a CORS redirect");
+        Check(file.Headers.CacheControl?.NoStore == true && file.Content.Headers.ContentDisposition is null, "Shared image retains privacy headers and can be viewed inline");
+        var attachment = await client.GetAsync($"/api/media/{token}/001.jpg?file=true&download=true");
+        Check(attachment.Content.Headers.ContentDisposition?.DispositionType == "attachment", "Stream supports attachment downloads");
+        Check((await client.GetAsync($"/api/media/{otherToken}/001.jpg?file=true")).StatusCode == HttpStatusCode.NotFound &&
+            (await client.GetAsync($"/api/media/{token}/999.jpg?file=true")).StatusCode == HttpStatusCode.NotFound, "Native share endpoint enforces guest isolation and asset existence");
+        store.GifFinal = true;
+        var gifFile = await client.GetAsync($"/api/media/{token}/final?file=true");
+        Check(gifFile.Content.Headers.ContentType?.MediaType == "image/gif" &&
+            (await client.GetFromJsonAsync<JsonElement>("/api/guest/" + token)).GetProperty("final").GetProperty("fileName").GetString() == "picme-final.gif",
+            "Animated finals retain GIF type and filename when shared");
         var download = await client.GetAsync($"/api/media/{token}/001.jpg?download=true");
         Check(download.StatusCode == HttpStatusCode.Redirect && download.Headers.Location!.AbsolutePath.Contains(hash), "Authorized media resolves to its own blob");
         Check((await client.GetAsync($"/api/media/{otherToken}/001.jpg")).StatusCode == HttpStatusCode.NotFound, "Other guest cannot read a known asset ID");
@@ -90,8 +109,9 @@ internal static class Checks
     }
     private sealed class FakeStore(string permittedHash) : IPhotoStore
     {
-        public bool FinalAvailable, Fail; public int OriginalsAvailable;
-        private PhotoAsset Asset(string id) => new(id, GalleryContract.BlobName(permittedHash, id), "anna-david", 120, id == "final" ? 0 : int.Parse(id[..3]), 2, "2020-01-01T00:00:00Z");
+        public bool FinalAvailable, Fail, GifFinal; public int OriginalsAvailable;
+        public static readonly byte[] ImageBytes = [0xff, 0xd8, 0xff, 0xd9];
+        private PhotoAsset Asset(string id) => new(id, GifFinal && id == "final" ? $"sessions/{permittedHash}/final.gif" : GalleryContract.BlobName(permittedHash, id), "anna-david", 120, id == "final" ? 0 : int.Parse(id[..3]), 2, "2020-01-01T00:00:00Z");
         public Task<GuestPhotos> FindAsync(string hash, CancellationToken token)
         {
             if (Fail) throw new InvalidOperationException("AccountKey=DO-NOT-EXPOSE");
@@ -101,5 +121,6 @@ internal static class Checks
         public Task<PhotoAsset?> GetAsync(string hash, string id, CancellationToken token) => Task.FromResult(
             hash != permittedHash || !FinalAvailable || (id != "final" && !Enumerable.Range(1, OriginalsAvailable).Any(i => id == $"{i:000}.jpg")) ? null : Asset(id));
         public Uri DownloadUrl(PhotoAsset asset, bool attachment) => new("https://testaccount.blob.core.windows.net/photos/" + asset.BlobName + "?sp=r&sig=TEST");
+        public Task<Stream> OpenReadAsync(PhotoAsset asset, CancellationToken token) => Task.FromResult<Stream>(new MemoryStream(ImageBytes));
     }
 }

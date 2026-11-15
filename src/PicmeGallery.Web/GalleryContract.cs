@@ -36,7 +36,7 @@ public static partial class GalleryContract
             !int.TryParse(indexText, NumberStyles.None, CultureInfo.InvariantCulture, out int index) ||
             (final ? index != 0 : index < 1 || index > count || id[..3] != index.ToString("000", CultureInfo.InvariantCulture))) return null;
         metadata.TryGetValue("capturetimeutc", out string? captured);
-        return new PhotoAsset(id, final && contentType == "image/gif" ? "sessions/" + hash + "/final.gif" : BlobName(hash, id), eventId, bytes, index, count, captured);
+        return new PhotoAsset(id, final && contentType == "image/gif" ? "sessions/" + hash + "/final.gif" : BlobName(hash, id), eventId, bytes, index, count, captured, contentType);
     }
     [GeneratedRegex("\\A[A-Za-z0-9_-]{43}\\z", RegexOptions.CultureInvariant)] private static partial Regex TokenFormat();
     [GeneratedRegex("\\A[a-z0-9][a-z0-9_-]{0,63}\\z", RegexOptions.CultureInvariant)] private static partial Regex EventFormat();
@@ -44,11 +44,19 @@ public static partial class GalleryContract
     [GeneratedRegex("\\A[0-9]{3}\\.(?:jpg|jpeg|png)\\z", RegexOptions.CultureInvariant)] private static partial Regex OriginalId();
 }
 
-public sealed record PhotoAsset(string Id, string BlobName, string EventId, long Bytes, int Index, int ExpectedOriginals, string? CapturedUtc);
+public sealed record PhotoAsset(string Id, string BlobName, string EventId, long Bytes, int Index, int ExpectedOriginals, string? CapturedUtc, string? MediaType = null)
+{
+    public string FileName => "picme-" + (Id == "final" ? Path.GetFileName(BlobName) : "original-" + Id);
+    public string ContentType => MediaType ?? (Path.GetExtension(BlobName).ToLowerInvariant() switch
+    {
+        ".gif" => "image/gif", ".png" => "image/png", _ => "image/jpeg"
+    });
+}
 public sealed record GuestPhotos(PhotoAsset? Final, IReadOnlyList<PhotoAsset> Originals);
 public interface IPhotoStore
 {
     Task<GuestPhotos> FindAsync(string hash, CancellationToken token);
     Task<PhotoAsset?> GetAsync(string hash, string id, CancellationToken token);
     Uri DownloadUrl(PhotoAsset asset, bool attachment);
+    Task<Stream> OpenReadAsync(PhotoAsset asset, CancellationToken token);
 }
