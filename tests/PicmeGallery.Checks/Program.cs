@@ -100,6 +100,7 @@ internal static class Checks
         Check((await restarted.GetAsync("/health")).StatusCode == HttpStatusCode.OK, "Fresh stateless instance starts without database");
         Console.WriteLine($"PASS: {count} gallery contract/access/HTTP checks.");
         await OwnerChecks.RunAsync();
+        await SafetyChecks.RunAsync();
     }
     private sealed class Factory(FakeStore store) : WebApplicationFactory<global::Program>
     {

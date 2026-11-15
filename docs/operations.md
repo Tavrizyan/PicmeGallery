@@ -84,3 +84,21 @@ Copy [deployment-record.example.md](deployment-record.example.md) into an approp
 Use **Manage sessions** in the admin event list, then **Hide from owner** or **Restore to owner**. All / Visible / Hidden filters apply to the management view; hidden sessions remain previewable by authenticated admins. These controls change only `HiddenSessionIds` in the private event JSON, with conditional ETag writes. No photo tags or guest bearer tokens are changed.
 
 For verification, hide a test session and confirm it disappears from owner listing responses, its owner session/media APIs return 404, and its finals/originals are absent from a newly requested event ZIP. Then scan that session’s original guest QR and verify final/original preview and download still work. Restore it and repeat the owner checks. Confirm hide/restore state survives owner-link replacement. Existing SAS URLs may last five minutes and already-running downloads may finish; loaded owner views reconcile on their next refresh rather than via server push.
+
+### Application storage safeguards
+
+PicmeGallery enforces these limits inside the ASP.NET Core application; it does not depend on the browser closing a request:
+
+| Setting | Default | Applies to |
+| --- | --- | --- |
+| `StorageSafety__MaxPagesPerRequest` | `100` | Each registry scan, filtered session traversal, and event ZIP traversal. |
+| `StorageSafety__ApiTimeoutSeconds` | `30` | API requests and their storage cancellation tokens. |
+| `StorageSafety__ArchiveTimeoutSeconds` | `600` | Event ZIP requests, with a larger finite download budget. |
+
+Defaults are in `appsettings.json`; optional Azure App Service settings override them. Values must be positive, and the archive timeout must be at least the API timeout. Limits are validated at startup. Increase a limit only for a measured legitimate workload: hitting a guard does not silently return a partial event list or an apparently successful incomplete archive.
+
+The page guard checks before the next storage page read. It rejects any previously used continuation marker, including a cycle through multiple markers, and caps traversal even if a faulty provider continually returns unique markers. Null and empty terminal markers remain valid. Client disconnects and application deadlines both cancel storage work; explicit checks also stop another page read if a provider ignored an earlier cancellation.
+
+A page safety stop returns a generic `503` with `Retry-After: 60`; an API deadline returns `504`. An archive that has started is aborted instead of delivering a successful partial ZIP. Logs contain only the stop reason/category, not continuation markers, event/guest bearer paths, or SAS URLs. `tests/PicmeGallery.Checks/SafetyChecks.cs` covers repeated/cycling/unique markers, normal terminal pages, page bounds, application deadlines, archive interruption, and client cancellation using fake storage.
+
+These are per-request application safeguards, not an Azure account spending cap. Normal traffic, SDK retries, per-session reads, and deliberate downloads still incur their normal charges. No Azure budget, billing alert, or account-wide quota is provisioned by this change.

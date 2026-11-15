@@ -32,13 +32,14 @@ public static class EventAccess
 internal static class SessionPages
 {
     public static async Task<EventPhotoPage> ReadAsync(IEventPhotoStore store, string eventId, string? continuation,
-        Func<EventFinal, bool> include, CancellationToken cancellation)
+        Func<EventFinal, bool> include, CancellationToken cancellation, int maxPages)
     {
+        var guard = new PaginationGuard(maxPages);
         EventPhotoPage page;
         EventFinal[] sessions;
         do
         {
-            cancellation.ThrowIfCancellationRequested();
+            guard.BeforeRead(continuation, cancellation);
             page = await store.ListFinalsAsync(eventId, continuation, cancellation);
             sessions = page.Sessions.Where(include).ToArray();
             continuation = string.IsNullOrEmpty(page.Continuation) ? null : page.Continuation;

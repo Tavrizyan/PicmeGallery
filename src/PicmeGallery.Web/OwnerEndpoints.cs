@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.DataProtection;
 
 namespace PicmeGallery.Web;
@@ -22,11 +23,11 @@ public static class OwnerEndpoints
             context.HttpContext.Items["OwnerEventVersion"] = stored.Version;
             return await next(context);
         });
-        api.MapGet("", async (string token, string? cursor, HttpContext context, IEventPhotoStore photos, IDataProtectionProvider protection, CancellationToken cancellation) =>
+        api.MapGet("", async (string token, string? cursor, HttpContext context, IEventPhotoStore photos, IDataProtectionProvider protection, IOptions<StorageSafetyOptions> safety, CancellationToken cancellation) =>
         {
             var record = Event(context);
             if (!Cursors.TryRead(protection, "event:" + record.EventId, cursor, out string? continuation)) return Results.BadRequest(new { message = "Invalid page. Refresh the gallery." });
-            var page = await SessionPages.ReadAsync(photos, record.EventId, continuation, session => !record.IsHidden(session.SessionId), cancellation);
+            var page = await SessionPages.ReadAsync(photos, record.EventId, continuation, session => !record.IsHidden(session.SessionId), cancellation, safety.Value.MaxPagesPerRequest);
             return Results.Ok(new
             {
                 name = record.Name,
@@ -64,7 +65,7 @@ public static class OwnerEndpoints
                 fileDownloadName: download == true ? photo.FileName : null);
             return Results.Redirect(store.DownloadUrl(photo, download == true).AbsoluteUri);
         });
-        api.MapGet("/download", (HttpContext context, IEventPhotoStore events, IPhotoStore photos, ILoggerFactory logging) =>
+        api.MapGet("/download", (HttpContext context, IEventPhotoStore events, IPhotoStore photos, ILoggerFactory logging, IOptions<StorageSafetyOptions> safety) =>
         {
             var record = Event(context);
             // .NET 10 entry streams can synchronously write their small closing data descriptor,
@@ -79,9 +80,10 @@ public static class OwnerEndpoints
                     await using var archive = await ZipArchive.CreateAsync(output, ZipArchiveMode.Create, leaveOpen: true, entryNameEncoding: null, cancellation);
                     string? cursor = null;
                     var seen = new HashSet<string>();
+                    var guard = new PaginationGuard(safety.Value.MaxPagesPerRequest);
                     do
                     {
-                        cancellation.ThrowIfCancellationRequested();
+                        guard.BeforeRead(cursor, cancellation);
                         var page = await events.ListFinalsAsync(record.EventId, cursor, cancellation);
                         foreach (var session in page.Sessions)
                         {

@@ -83,6 +83,10 @@ dotnet run --project src/PicmeGallery.Web --no-launch-profile --urls "https://lo
 
 Supply the admin/storage settings privately through your environment or ignored `appsettings.Local.json`; do not commit real credentials. `dotnet run --project tests/PicmeGallery.Checks` includes admin login/CSRF/rate limiting, scoped event access, replace/revoke, and ZIP-content checks with fake storage. `tests/event-browser-checks.js` runs through the Playwright browser tool’s `filename` input against port 5079, with mocked admin/event APIs. It covers login/logout, event management, responsive owner/admin pages, final-only pagination, original-session navigation, and revoked links. `tests/session-visibility-browser-checks.js` additionally covers management navigation, hide/restore, visibility filters, stale-edit recovery, loaded owner-card/session removal, and continued guest QR access. A real Azure read/write/tag-index and HTTPS deployment check remains necessary.
 
+## Storage request safeguards
+
+The server stops repeated or cycling pagination markers before another page read and limits each registry/session/ZIP traversal to 100 pages. API storage work is canceled after 30 seconds; ZIP downloads have a separate 10-minute deadline. Client disconnects also cancel work. Safety failures return an error or abort a started archive rather than returning partial success. Optional Azure settings and operational details are documented under [application storage safeguards](docs/operations.md#application-storage-safeguards). These controls bound individual requests; they do not create an Azure spending cap.
+
 ## Blob contract, version 1
 
 The booth generates a permanent 32-byte random Base64URL token. `GuestKeyHash` is lowercase hex SHA-256 of the token's UTF-8 text. The raw token is not uploaded into blob names/tags.

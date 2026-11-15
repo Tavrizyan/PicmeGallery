@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Options;
 
 namespace PicmeGallery.Web;
 
@@ -8,7 +9,7 @@ public static class AdminSessionEndpoints
     public static void MapSessionManagement(this RouteGroupBuilder api)
     {
         api.MapGet("/events/{eventId}/sessions", async (string eventId, string? cursor, string? filter,
-            IEventStore events, IEventPhotoStore photos, IDataProtectionProvider protection, CancellationToken cancellation) =>
+            IEventStore events, IEventPhotoStore photos, IDataProtectionProvider protection, IOptions<StorageSafetyOptions> safety, CancellationToken cancellation) =>
         {
             if (!GalleryContract.ValidEventId(eventId)) return Results.NotFound();
             string mode = filter ?? "all";
@@ -19,7 +20,7 @@ public static class AdminSessionEndpoints
             if (!Cursors.TryRead(protection, scope, cursor, out string? continuation)) return Results.BadRequest(new { message = "Invalid page. Refresh the sessions." });
             var record = stored.Record;
             var page = await SessionPages.ReadAsync(photos, eventId, continuation,
-                session => mode == "all" || record.IsHidden(session.SessionId) == (mode == "hidden"), cancellation);
+                session => mode == "all" || record.IsHidden(session.SessionId) == (mode == "hidden"), cancellation, safety.Value.MaxPagesPerRequest);
             return Results.Ok(new
             {
                 eventId, record.Name, stored.Version,

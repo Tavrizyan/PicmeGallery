@@ -9,6 +9,10 @@ builder.Services.AddSingleton<IEventPhotoStore>(services => services.GetRequired
 builder.Services.AddSingleton<IEventStore, AzureEventStore>();
 builder.Services.AddSingleton<EventCatalog>();
 builder.Services.AddGalleryAdministration(builder.Configuration);
+builder.Services.AddOptions<StorageSafetyOptions>().BindConfiguration("StorageSafety")
+    .Validate(options => options.MaxPagesPerRequest > 0 && options.ApiTimeoutSeconds > 0 && options.ArchiveTimeoutSeconds >= options.ApiTimeoutSeconds,
+        "Storage safety limits must be positive; archive timeout must be at least the API timeout.")
+    .ValidateOnStart();
 var app = builder.Build();
 
 app.Use(async (context, next) =>
@@ -23,6 +27,14 @@ app.Use(async (context, next) =>
     {
         if (!context.Response.HasStarted) context.Response.StatusCode = 499;
     }
+    catch (PaginationSafetyException error)
+    {
+        app.Logger.LogWarning("Storage pagination stopped by safeguard ({Reason}).", error.Reason);
+        if (context.Response.HasStarted) { context.Abort(); return; }
+        context.Response.StatusCode = 503;
+        context.Response.Headers.RetryAfter = "60";
+        await context.Response.WriteAsJsonAsync(new { message = "This request reached a service safety limit and was stopped. Please try again later." });
+    }
     catch (Exception error)
     {
         if (context.Response.HasStarted) throw;
@@ -32,6 +44,7 @@ app.Use(async (context, next) =>
         app.Logger.LogWarning("Photo storage unavailable ({FailureType}).", error.GetType().Name);
     }
 });
+app.UseMiddleware<StorageDeadlineMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
