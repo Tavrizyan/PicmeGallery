@@ -55,7 +55,7 @@ internal static class Checks
         using var factory = new Factory(store);
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var page = await client.GetAsync("/p/" + token);
-        Check(page.StatusCode == HttpStatusCode.OK && (await page.Content.ReadAsStringAsync()).Contains("Yours to keep."), "Permanent QR route serves gallery");
+        Check(page.StatusCode == HttpStatusCode.OK && (await page.Content.ReadAsStringAsync()).Contains("id=\"originals\""), "Permanent QR route serves gallery");
         Check(page.Headers.CacheControl?.NoStore == true && page.Headers.GetValues("Referrer-Policy").Single() == "no-referrer", "Guest page privacy headers");
         Check((await client.GetAsync("/api/guest/42")).StatusCode == HttpStatusCode.NotFound, "Bad URL secret rejected");
         var waiting = await client.GetFromJsonAsync<JsonElement>("/api/guest/" + otherToken);
