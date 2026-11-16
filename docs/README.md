@@ -19,7 +19,7 @@ Maintainer reference, updated 2026-11-12. These documents preserve the requireme
 - Companion desktop repository: [Tavrizyan/PicmeBooth](https://github.com/Tavrizyan/PicmeBooth).
 - Proposed permanent public address: `https://photos.picme.am/p/{accessToken}`.
 - Initial hosting decision: a separate Azure App Service Web App on Free F1, with a Cloudflare Worker for the public subdomain.
-- Runtime: ASP.NET Core on .NET 10; the same process serves the guest UI and API.
+- Runtime: ASP.NET Core on .NET 11; the same process serves the guest UI and API.
 - Persistent photo storage: private Azure Blob Storage, with explicit Cold-tier uploads by PicmeBooth.
 - Application database: none. The gallery does not store an album registry or a token-to-session mapping.
 

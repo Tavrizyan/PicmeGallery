@@ -13,7 +13,7 @@ Start with the [documentation index](docs/README.md):
 
 ## Run locally
 
-Install the .NET 10 SDK, then configure **server-side** environment variables (do not commit them):
+Install the .NET 11 SDK, then configure **server-side** environment variables (do not commit them):
 
 ```powershell
 $env:Azure__ConnectionString = '<enter privately>'
@@ -107,7 +107,7 @@ The UI calls `/api/guest/{token}` and `/api/media/{token}/{id}`. Downloads recei
 
 ## Azure App Service F1
 
-Create a separate F1 Web App with the .NET 10 runtime and deploy the publish output. Configure `Azure__ConnectionString` and `Azure__Container` in App Service settings, using credentials capable of listing/filtering tags, reading properties/tags, and signing individual blob reads. No secrets go in client assets.
+Create a separate F1 Web App with the .NET 11 runtime and deploy the publish output. Configure `Azure__ConnectionString` and `Azure__Container` in App Service settings, using credentials capable of listing/filtering tags, reading properties/tags, and signing individual blob reads. No secrets go in client assets.
 
 F1 is an initial development/testing target with hard quotas; it is not an always-on availability guarantee. The Azure-assigned HTTPS hostname is the origin. Test the deployed `/health`, guest route, tag query, and actual downloads before issuing production prints. No Azure resources are provisioned by this repository.
 

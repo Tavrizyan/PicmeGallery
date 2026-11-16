@@ -14,7 +14,7 @@ Template only: no live environment is asserted by these example fields. Copy it 
 | Azure resource group | Not recorded |
 | Azure Web App name | Not recorded |
 | App Service plan / OS / region | Selected starting plan: F1; actual values not recorded |
-| .NET runtime | Required: .NET 10; actual setting not recorded |
+| .NET runtime | Required: .NET 11; actual setting not recorded |
 | Assigned Azure HTTPS origin | Not recorded |
 | Azure storage account / region / redundancy | Not recorded |
 | Private container | Example: `photos`; actual value not recorded |

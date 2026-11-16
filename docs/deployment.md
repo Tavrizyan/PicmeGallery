@@ -2,11 +2,13 @@
 
 This is an operator guide, not a statement that resources have already been created. Use a separate gallery Web App and the `photos.picme.am` subdomain. Do not deploy into the legacy `Picme.am` application or change its root/www routing.
 
+The repository targets .NET 11. Existing deployment records describe .NET 10 hosts; update the gallery Web App runtime to .NET 11 and verify availability for its OS/region before deploying this framework-dependent output.
+
 ## 1. Prerequisites
 
-- A reviewed checkout of `main`, .NET 10 SDK, and Node.js for the proxy checks/Cloudflare tooling. The SDK selection is in [global.json](../global.json).
+- A reviewed checkout of `main`, .NET 11 SDK, and Node.js for the proxy checks/Cloudflare tooling. The SDK selection is in [global.json](../global.json).
 - Access to an Azure subscription and a real storage account/container usable by both PicmeBooth and PicmeGallery.
-- Permission to create/configure a separate Azure App Service Web App, with the .NET 10 runtime and Free F1 where available.
+- Permission to create/configure a separate Azure App Service Web App, with the .NET 11 runtime and Free F1 where available.
 - For the proposed public hostname: access to the Cloudflare account managing `picme.am`, Workers, and that subdomain.
 - For the command-line deployment examples: [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) and [Wrangler](https://developers.cloudflare.com/workers/wrangler/).
 
@@ -19,7 +21,7 @@ The [workflow](../.github/workflows/checks.yml) runs gallery and proxy checks an
 ### One-time resource setup
 
 1. Prepare the private storage account/container as described in section 2. Source media must remain private, online, and retained.
-2. Create a **separate** Azure Web App using Code, .NET 10, and an F1 plan where supported. Choose and record its OS and region. For Linux, set the startup command to `dotnet PicmeGallery.Web.dll` if needed. Keep HTTPS enabled. Configure the two storage app settings from section 3 privately in Azure; GitHub does not need the storage connection string. Do not enable an additional generated deployment workflow in Deployment Center.
+2. Create a **separate** Azure Web App using Code, .NET 11, and an F1 plan where supported. Choose and record its OS and region. For Linux, set the startup command to `dotnet PicmeGallery.Web.dll` if needed. Keep HTTPS enabled. Configure the two storage app settings from section 3 privately in Azure; GitHub does not need the storage connection string. Do not enable an additional generated deployment workflow in Deployment Center.
 3. Create a GitHub environment named **`gallery`** under repository Settings → Environments. Restrict deployment branches to `main`. Leave required reviewers disabled for automatic releases. If this repository's GitHub plan does not support the environment/protection settings, resolve that before configuring federation; the subject below depends on the environment name.
 4. Register a Microsoft Entra application for GitHub deployment. Assign its service principal **Website Contributor** scoped to this Web App, rather than the subscription. Add a GitHub Actions federated credential for repository `Tavrizyan/PicmeGallery`, entity type **Environment**, name **`gallery`**:
 
@@ -123,7 +125,7 @@ The ZIP root must contain `PicmeGallery.Web.dll`, its dependencies, configuratio
 
 ## 5. Configure and deploy the Azure Web App
 
-1. In Azure, create a separate Web App publishing **Code**, select the .NET 10 runtime, and select/create its own App Service plan on F1. Record the OS, region, app name, resource group, and assigned HTTPS hostname.
+1. In Azure, create a separate Web App publishing **Code**, select the .NET 11 runtime, and select/create its own App Service plan on F1. Record the OS, region, app name, resource group, and assigned HTTPS hostname.
 2. In the Web App's environment variables/app settings, add `Azure__ConnectionString` and `Azure__Container`. Use the app-settings section with these exact names. Save/apply and allow the restart.
 3. Deploy the publish ZIP, replacing placeholders below with the new gallery app's values:
 
@@ -133,7 +135,7 @@ az account set --subscription '<subscription-id-or-name>'
 az webapp deploy --resource-group '<gallery-resource-group>' --name '<gallery-web-app-name>' --src-path artifacts/PicmeGallery.zip --type zip
 ```
 
-For a Linux app that needs an explicit startup command, use `dotnet PicmeGallery.Web.dll`. For Windows, use the published ASP.NET Core hosting configuration. Confirm that the app's configured runtime matches the published `net10.0` framework-dependent output.
+For a Linux app that needs an explicit startup command, use `dotnet PicmeGallery.Web.dll`. For Windows, use the published ASP.NET Core hosting configuration. Confirm that the app's configured runtime matches the published `net11.0` framework-dependent output.
 
 4. Visit `https://<assigned-host>.azurewebsites.net/health`, then test a real uploaded session at `/p/{token}` on that origin. Verify both previews and downloads, not just the landing page.
 5. Record the deployed commit and successful checks in a [deployment record](deployment-record.example.md).
