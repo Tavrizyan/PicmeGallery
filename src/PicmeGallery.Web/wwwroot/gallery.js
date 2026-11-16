@@ -148,7 +148,7 @@
       byId("guest-event-id").textContent = photos.eventId || "";
       byId("event-info").hidden = !photos.eventId;
       if (photos.final) {
-        assets.set("final", { ...photos.final, label: photos.final.contentType === "image/gif" ? "Your animated moment" : "Your finished print" });
+        assets.set("final", { ...photos.final, label: photos.final.contentType === "image/gif" ? "Your animated moment" : "Finished print" });
         const image = byId("final-image");
         if (!image.getAttribute("src")) image.src = photos.final.previewUrl;
         byId("final-title").textContent = assets.get("final").label;
@@ -184,7 +184,7 @@
       byId("originals-section").hidden = !originals;
       byId("photo-count").textContent = `${originals} / ${photos.expectedOriginals} photos`;
       if (dialog.open) updateNavigation();
-      if (photos.state === "ready") status.textContent = "Your photos are ready.";
+      if (photos.state === "ready") status.textContent = "";
       else if (photos.final) status.textContent = `Uploading originals (${Math.max(originals, photos.uploadedOriginals)} of ${photos.expectedOriginals}).`;
       else status.textContent = "Uploading photos. This page checks automatically.";
       ready = photos.state === "ready";

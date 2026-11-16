@@ -53,13 +53,13 @@ async (page) => {
     });
     check(await page.locator('#preview-title').textContent() === 'Original photo 1', 'Swipe changes photo');
     await page.locator('#previous-photo').click();
-    check(await page.locator('#preview-title').textContent() === 'Your finished print', 'Previous button');
+    check(await page.locator('#preview-title').textContent() === 'Finished print', 'Previous button');
     await page.keyboard.press('Tab');
     check(await page.evaluate(() => document.getElementById('preview').contains(document.activeElement)), 'Modal contains focus');
     await page.keyboard.press('ArrowRight');
     check(await page.locator('#preview-title').textContent() === 'Original photo 1', 'Next image via keyboard');
     await page.keyboard.press('ArrowLeft');
-    check(await page.locator('#preview-title').textContent() === 'Your finished print', 'Previous image via keyboard');
+    check(await page.locator('#preview-title').textContent() === 'Finished print', 'Previous image via keyboard');
     await page.keyboard.press('Escape');
     check(await page.evaluate(() => !document.getElementById('preview').open && document.activeElement.id === 'preview-final'), 'Close and restore focus');
     check(await page.locator('#refresh').isHidden(), 'Ready gallery hides Check for photos');

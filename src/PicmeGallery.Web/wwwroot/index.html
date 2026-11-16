@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#251b62">
-  <title>Your photos · PICME</title>
+  <title>Photos · PICME</title>
   <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16x16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="196x196" href="/brand/favicon-196x196.png">
@@ -12,12 +12,12 @@
   <link rel="stylesheet" href="/gallery.css"><script src="/gallery.js" defer></script>
 </head>
 <body>
-  <div class="hero">
+  <div class="hero"><div class="wallpaper-lights" aria-hidden="true"></div>
     <header class="site-header"><a class="brand" href="https://picme.am" aria-label="PICME home"><img src="/brand/picme_logo_whitescale.svg" alt="PICME" width="156" height="59"></a><span class="header-note">PHOTO GALLERY</span></header>
-    <section class="intro" aria-labelledby="page-title"><a id="event-back" class="event-back" hidden>← Back to event gallery</a><p id="event-info" class="event-info" hidden><span>Event</span><strong id="guest-event-id"></strong></p><h1 id="page-title">Your photos</h1><p id="status" role="status" aria-live="polite">Opening your photos…</p><button id="refresh" class="secondary" type="button" hidden>Check for photos <span aria-hidden="true">↻</span></button></section>
+    <section class="intro" aria-labelledby="page-title"><a id="event-back" class="event-back" hidden>← Back to event gallery</a><p id="event-info" class="event-info" hidden><span>Event</span><strong id="guest-event-id"></strong></p><h1 id="page-title">Photos</h1><p id="status" role="status" aria-live="polite">Opening your photos…</p><button id="refresh" class="secondary" type="button" hidden>Check for photos <span aria-hidden="true">↻</span></button></section>
   </div>
   <main>
-    <section id="final-section" class="final-section" hidden aria-labelledby="final-title"><div class="section-heading"><div><h2 id="final-title">Your finished print</h2></div><div class="actions"><button id="save-final" type="button">Save to phone</button><a id="download-final" class="button secondary"><img class="download-icon" src="/icons/download.svg" alt="" width="20" height="20" aria-hidden="true">Download</a></div></div><button id="preview-final" class="print-stage" type="button" aria-label="Preview your finished print"><img id="final-image" alt="Your finished photobooth print"><span class="preview-hint">Tap to preview <span aria-hidden="true">↗</span></span></button></section>
+    <section id="final-section" class="final-section" hidden aria-labelledby="final-title"><div class="section-heading"><div><h2 id="final-title">Finished print</h2></div><div class="actions"><button id="save-final" type="button">Save to phone</button><a id="download-final" class="button secondary"><img class="download-icon" src="/icons/download.svg" alt="" width="20" height="20" aria-hidden="true">Download</a></div></div><button id="preview-final" class="print-stage" type="button" aria-label="Preview your finished print"><img id="final-image" alt="Your finished photobooth print"><span class="preview-hint">Tap to preview <span aria-hidden="true">↗</span></span></button></section>
     <section id="originals-section" hidden aria-labelledby="originals-title"><div class="section-heading"><div><h2 id="originals-title">Original photos</h2></div><span id="photo-count" class="count"></span></div><div id="originals" class="photo-grid"></div></section>
     <section id="waiting" class="waiting"><img src="/brand/picme_logo_colour.svg" alt="" width="112" height="42"><h2 id="waiting-title">Uploading photos…</h2><p id="waiting-detail">Please check back shortly.</p></section>
   </main>
