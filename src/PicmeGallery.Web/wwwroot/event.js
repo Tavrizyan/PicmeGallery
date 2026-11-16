@@ -49,7 +49,7 @@
         const response = await fetch(`/api/event/${token}` + (cursor ? "?cursor=" + encodeURIComponent(cursor) : ""), { cache: "no-store", signal: controller.signal });
         if (response.status === 404) {
           unavailable = true; sessions.clear(); grid.replaceChildren(); byId("download-all").hidden = true;
-          byId("more-photos").hidden = true; byId("download-note").hidden = true; byId("event-empty").hidden = true;
+          byId("more-photos").hidden = true; byId("event-empty").hidden = true;
           if (dialog.open) dialog.close(); byId("event-title").textContent = "Link unavailable"; document.title = "Link unavailable · PICME";
           byId("session-count").textContent = ""; byId("refresh-event").hidden = true;
           throw new Error("This event link is unavailable. Ask the organizer for a current link.");
@@ -67,9 +67,9 @@
       }
       nextCursor = cursor; byId("more-photos").hidden = !nextCursor;
       byId("download-all").href = result.downloadAllUrl; byId("download-all").hidden = !sessions.size;
-      byId("download-note").hidden = !sessions.size; byId("event-empty").hidden = !!sessions.size;
-      byId("session-count").textContent = `${sessions.size} ${sessions.size === 1 ? "moment" : "moments"} loaded`;
-      notice(sessions.size ? "Final prints only. Open All photos for originals." : "No moments are available yet. This page checks automatically.");
+      byId("event-empty").hidden = !!sessions.size;
+      byId("session-count").textContent = `${sessions.size} ${sessions.size === 1 ? "print" : "prints"}`;
+      notice("");
     } catch (error) { notice(error.name === "AbortError" ? "The gallery is taking a while to open. Please try Refresh gallery." : error.message, true); }
     finally {
       clearTimeout(timeout); busy = false; byId("refresh-event").disabled = byId("more-photos").disabled = false;
@@ -78,7 +78,7 @@
   }
   byId("more-photos").addEventListener("click", () => load({ more: true }));
   byId("refresh-event").addEventListener("click", () => load({ scan: true }));
-  byId("download-all").addEventListener("click", () => notice("Your ZIP download is starting. It includes all available final and original photos. Keep this page open while it downloads."));
+  byId("download-all").addEventListener("click", () => notice("Downloading all photos…"));
   document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(timer); else load({ scan: true }); });
   load();
 })();

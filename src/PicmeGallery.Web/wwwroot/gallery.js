@@ -6,7 +6,6 @@
   const galleryUrl = ownerSession ? `/api/event/${token}/sessions/${ownerSession[2]}` : `/api/guest/${token}`;
   if (ownerSession) {
     const back = byId("event-back"); back.hidden = false; back.href = `/e/${token}`;
-    document.querySelector(".keep-note").textContent = "Your session’s finished print and original photos, in full quality.";
   }
   const status = byId("status"), refresh = byId("refresh");
   const waiting = byId("waiting"), grid = byId("originals"), dialog = byId("preview");
@@ -18,10 +17,10 @@
   const orderedPhotos = () => [...assets.values()].sort((a, b) => a.id === "final" ? -1 : b.id === "final" ? 1 : a.id.localeCompare(b.id));
   byId("save-final").hidden = !mobile;
   byId("save-help").textContent = ios
-    ? "Tap Save to Photos, then choose Save Image in the share sheet. You can also touch and hold the photo above and choose Save to Photos. If needed, open this page in Safari."
+    ? "Tap Save to Photos, then choose Save Image."
     : android
-      ? "Tap Save / share and choose your Photos or Gallery app if available. Or download the original and find it in Downloads or your gallery’s Downloads album. You can also touch and hold the photo to save it."
-      : "Download the original in full quality, or share the image using your device’s share sheet.";
+      ? "Save / share to your gallery, or find downloaded photos in Downloads."
+      : "Download the original in full quality.";
 
   function updateNavigation() {
     const photos = orderedPhotos(), index = photos.findIndex(photo => photo.id === selectedId);
@@ -117,9 +116,9 @@
   byId("save-final").addEventListener("click", event => openPreview("final", event.currentTarget));
 
   if (!token) {
-    status.textContent = "Scan the QR on your photobooth print to open your photos.";
-    byId("waiting-title").textContent = "Your print is your invitation.";
-    byId("waiting-detail").textContent = "Each print has its own private photo link. No account needed.";
+    status.textContent = "Scan your print’s QR code.";
+    byId("waiting-title").textContent = "Open your photos";
+    byId("waiting-detail").textContent = "Use the QR code on your print.";
     return;
   }
   async function load(manual = false) {
@@ -142,7 +141,7 @@
         assets.clear(); grid.replaceChildren(); byId("final-image").removeAttribute("src");
         byId("final-section").hidden = byId("originals-section").hidden = byId("event-info").hidden = true;
         waiting.hidden = false; byId("waiting-title").textContent = "This session is unavailable.";
-        byId("waiting-detail").textContent = "Return to the event gallery for the available moments, or ask the organizer for a current link.";
+        byId("waiting-detail").textContent = "Return to the event gallery.";
       }
       if (!response.ok) throw new Error(response.status === 404 ? (ownerSession ? "This event link or session is unavailable. Ask the organizer for a current link." : "This photo link could not be opened. Please scan the QR on your print again.") : "Your photos are temporarily unavailable. Please try again shortly.");
       const photos = await response.json(); status.classList.remove("error");
@@ -185,9 +184,9 @@
       byId("originals-section").hidden = !originals;
       byId("photo-count").textContent = `${originals} / ${photos.expectedOriginals} photos`;
       if (dialog.open) updateNavigation();
-      if (photos.state === "ready") status.textContent = "Your photos are ready. Tap a photo to preview, download, or save it to your phone.";
-      else if (photos.final) status.textContent = `Your print is ready. Original photos are still uploading (${Math.max(originals, photos.uploadedOriginals)} of ${photos.expectedOriginals}).`;
-      else status.textContent = "Your photos may still be uploading. This page checks automatically.";
+      if (photos.state === "ready") status.textContent = "Your photos are ready.";
+      else if (photos.final) status.textContent = `Uploading originals (${Math.max(originals, photos.uploadedOriginals)} of ${photos.expectedOriginals}).`;
+      else status.textContent = "Uploading photos. This page checks automatically.";
       ready = photos.state === "ready";
       polls++;
       if (photos.state !== "ready" && polls < 40 && !document.hidden) timer = setTimeout(() => load(), polls < 5 ? 5000 : 15000);
