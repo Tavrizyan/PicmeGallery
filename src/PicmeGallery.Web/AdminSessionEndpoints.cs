@@ -55,7 +55,7 @@ public static class AdminSessionEndpoints
             var hidden = new HashSet<string>(stored.Record.HiddenSessionIds ?? [], StringComparer.Ordinal);
             bool changed = input.Hidden.Value ? hidden.Add(sessionId) : hidden.Remove(sessionId);
             if (changed)
-                await events.SaveAsync(stored.Record with { HiddenSessionIds = hidden.Order(StringComparer.Ordinal).ToArray() }, stored.Version, cancellation);
+                await events.SaveAsync(stored.Record with { HiddenSessionIds = hidden.Order(StringComparer.Ordinal).ToArray() }, stored.Version, writeAccessPointer: false, cancellation);
             return Results.Ok(new { sessionId, hidden = input.Hidden.Value });
         }).RequireAuthorization();
     }

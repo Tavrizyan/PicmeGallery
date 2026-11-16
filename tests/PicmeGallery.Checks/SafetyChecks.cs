@@ -148,7 +148,7 @@ internal static class SafetyChecks
         public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) => Task.FromResult<StoredEvent?>(
             new(new("test-event", "Safety event", DateTimeOffset.UtcNow, GalleryContract.TokenHash(OwnerToken), null), "1"));
         public Task<StoredEvent?> ResolveAsync(string hash, CancellationToken cancellation) => GetAsync("test-event", cancellation);
-        public Task SaveAsync(EventRecord record, string? expectedVersion, CancellationToken cancellation) => throw new NotSupportedException();
+        public Task SaveAsync(EventRecord record, string? expectedVersion, bool writeAccessPointer, CancellationToken cancellation) => throw new NotSupportedException();
         public async Task<EventPhotoPage> ListFinalsAsync(string eventId, string? continuation, CancellationToken cancellation)
         {
             PhotoReads++; await Delay(cancellation); return new([], Next(PhotoReads));

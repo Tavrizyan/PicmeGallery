@@ -50,6 +50,7 @@ internal static class OwnerChecks
         var createdBody = await created.Content.ReadFromJsonAsync<JsonElement>();
         string path = createdBody.GetProperty("ownerPath").GetString()!, token = path.Split('/').Last();
         Check(created.StatusCode == HttpStatusCode.OK && GalleryContract.TokenHash(token) is not null, "Admin creates an unpredictable owner link");
+        Check(store.LastWriteAccessPointer, "Event creation requests an access pointer write");
         Check(store.Values["test-event"].Record.ProtectedToken != token && store.Values["test-event"].Record.TokenHash == GalleryContract.TokenHash(token), "Owner token is stored encrypted and hashed");
         Check((await client.PostAsJsonAsync("/api/admin/events", new { eventId = "test-event", name = "Duplicate" })).StatusCode == HttpStatusCode.Conflict, "Duplicate Event IDs are not overwritten");
         // Azure can use an empty string (not null) for the final continuation marker.
@@ -120,6 +121,7 @@ internal static class OwnerChecks
         Check((await client.PostAsJsonAsync("/api/admin/events/test-event/replace", new { version = "stale" })).StatusCode == HttpStatusCode.Conflict, "Stale admin mutation cannot replace a link");
         var replaced = await client.PostAsJsonAsync("/api/admin/events/test-event/replace", new { version });
         string newToken = (await replaced.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("ownerPath").GetString()!.Split('/').Last();
+        Check(store.LastWriteAccessPointer, "Link replacement requests an access pointer write");
         Check(newToken != token && (await owner.GetAsync(api)).StatusCode == HttpStatusCode.NotFound, "Replacing link immediately rejects old event token");
         Check((await owner.GetAsync(api + $"/media/{MemoryPhotos.First}/final")).StatusCode == HttpStatusCode.NotFound &&
             (await owner.GetAsync(api + "/download")).StatusCode == HttpStatusCode.NotFound, "Replaced link also loses media and ZIP access");
@@ -128,6 +130,7 @@ internal static class OwnerChecks
         string currentVersion = store.Values["test-event"].Version;
         Check((await client.PostAsJsonAsync("/api/admin/events/test-event/revoke", new { version = currentVersion })).StatusCode == HttpStatusCode.OK &&
             (await owner.GetAsync("/api/event/" + newToken)).StatusCode == HttpStatusCode.NotFound, "Revocation removes event access");
+        Check(!store.LastWriteAccessPointer, "Revocation does not request an access pointer write");
         Check((await owner.GetAsync("/api/admin/events")).StatusCode == HttpStatusCode.Unauthorized, "Owner still cannot administer events");
         Check((await client.PostAsJsonAsync("/api/admin/logout", new { })).StatusCode == HttpStatusCode.OK &&
             (await client.GetAsync("/api/admin/events")).StatusCode == HttpStatusCode.Unauthorized, "Logout removes admin access");
@@ -178,6 +181,7 @@ internal static class OwnerChecks
             Check(response.StatusCode == HttpStatusCode.OK, hidden ? "Admin hides a session" : "Admin restores a session");
         }
         await Set(MemoryPhotos.First, true);
+        Check(!events.LastWriteAccessPointer, "Hiding a session does not request an access pointer write");
         Check(events.Values["test-event"].Record.IsHidden(MemoryPhotos.First) && events.Values["test-event"].Record.TokenHash == GalleryContract.TokenHash(token),
             "Visibility persists in event JSON without replacing the owner token");
         var visible = await owner.GetFromJsonAsync<JsonElement>(api);
@@ -212,6 +216,7 @@ internal static class OwnerChecks
         using (var bytes = new MemoryStream(await (await owner.GetAsync(api + "/download")).Content.ReadAsByteArrayAsync()))
         using (var zip = new ZipArchive(bytes)) Check(zip.Entries.Count == 0, "All-hidden event ZIP has no photo entries");
         await Set(MemoryPhotos.First, false); await Set(MemoryPhotos.Second, false);
+        Check(!events.LastWriteAccessPointer, "Restoring sessions does not request an access pointer write");
         Check((await owner.GetAsync(api + $"/sessions/{MemoryPhotos.First}")).StatusCode == HttpStatusCode.OK &&
             (await owner.GetAsync(api + $"/media/{MemoryPhotos.First}/final")).StatusCode == HttpStatusCode.Redirect, "Restore re-enables owner session and media access");
         string restoredVersion = events.Values["test-event"].Version;
@@ -239,6 +244,7 @@ internal static class OwnerChecks
     private sealed class MemoryEvents : IEventStore
     {
         public readonly Dictionary<string, StoredEvent> Values = [];
+        public bool LastWriteAccessPointer { get; private set; }
         private int revision;
         public Task<EventListPage> ListAsync(string? continuation, CancellationToken cancellation)
         {
@@ -248,9 +254,10 @@ internal static class OwnerChecks
         }
         public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) => Task.FromResult(Values.GetValueOrDefault(eventId));
         public Task<StoredEvent?> ResolveAsync(string hash, CancellationToken cancellation) => Task.FromResult(Values.Values.FirstOrDefault(item => item.Record.TokenHash == hash));
-        public Task SaveAsync(EventRecord record, string? expectedVersion, CancellationToken cancellation)
+        public Task SaveAsync(EventRecord record, string? expectedVersion, bool writeAccessPointer, CancellationToken cancellation)
         {
             if (Values.GetValueOrDefault(record.EventId)?.Version != expectedVersion) throw new EventConflictException();
+            LastWriteAccessPointer = writeAccessPointer;
             Values[record.EventId] = new(record, (++revision).ToString()); return Task.CompletedTask;
         }
     }

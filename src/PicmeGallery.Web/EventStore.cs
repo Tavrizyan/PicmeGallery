@@ -18,7 +18,7 @@ public interface IEventStore
     Task<EventListPage> ListAsync(string? continuation, CancellationToken cancellation);
     Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation);
     Task<StoredEvent?> ResolveAsync(string tokenHash, CancellationToken cancellation);
-    Task SaveAsync(EventRecord record, string? expectedVersion, CancellationToken cancellation);
+    Task SaveAsync(EventRecord record, string? expectedVersion, bool writeAccessPointer, CancellationToken cancellation);
 }
 public interface IEventPhotoStore
 {

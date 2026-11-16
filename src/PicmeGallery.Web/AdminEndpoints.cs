@@ -127,7 +127,7 @@ public static class AdminEndpoints
             if (!GalleryContract.ValidEventId(eventId) || name.Length is < 1 or > 120) return Results.BadRequest(new { message = "Enter an event name (up to 120 characters) and the exact booth Event ID: lowercase letters, numbers, hyphens or underscores, up to 64 characters." });
             string token = EventAccess.NewToken();
             var record = new EventRecord(eventId, name, DateTimeOffset.UtcNow, GalleryContract.TokenHash(token), protection.CreateProtector("EventOwnerTokens").Protect(token));
-            await store.SaveAsync(record, null, cancellation);
+            await store.SaveAsync(record, null, writeAccessPointer: true, cancellation);
             return Results.Ok(new { ownerPath = "/e/" + token });
         }).RequireAuthorization();
         api.MapPost("/events/{eventId}/{action}", async (string eventId, string action, EventVersionInput input, IEventStore store, IDataProtectionProvider protection, CancellationToken cancellation) =>
@@ -142,7 +142,7 @@ public static class AdminEndpoints
                 TokenHash = token is null ? null : GalleryContract.TokenHash(token),
                 ProtectedToken = token is null ? null : protection.CreateProtector("EventOwnerTokens").Protect(token)
             };
-            await store.SaveAsync(updated, stored.Version, cancellation);
+            await store.SaveAsync(updated, stored.Version, writeAccessPointer: action == "replace", cancellation);
             return Results.Ok(new { ownerPath = token is null ? null : "/e/" + token });
         }).RequireAuthorization();
     }

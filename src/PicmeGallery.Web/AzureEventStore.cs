@@ -45,13 +45,13 @@ public sealed class AzureEventStore(IConfiguration configuration) : IEventStore
         }
         catch (RequestFailedException error) when (error.Status == 404) { return null; }
     }
-    public async Task SaveAsync(EventRecord record, string? expectedVersion, CancellationToken cancellation)
+    public async Task SaveAsync(EventRecord record, string? expectedVersion, bool writeAccessPointer, CancellationToken cancellation)
     {
         if (!GalleryContract.ValidEventId(record.EventId)) throw new ArgumentException("Invalid event ID.");
         var container = BlobStorage.Container(configuration);
         var headers = new BlobHttpHeaders { ContentType = "application/json", CacheControl = "private, no-store" };
         // Write the lookup before activating the record; an interrupted or conflicting write cannot grant access.
-        if (record.TokenHash is not null)
+        if (writeAccessPointer && record.TokenHash is not null)
             await container.GetBlobClient("gallery/access/" + record.TokenHash + ".json").UploadAsync(BinaryData.FromObjectAsJson(record.EventId),
                 new BlobUploadOptions { HttpHeaders = headers, AccessTier = AccessTier.Hot }, cancellation);
         try
