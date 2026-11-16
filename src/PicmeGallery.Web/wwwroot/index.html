@@ -11,7 +11,7 @@
   <link rel="apple-touch-icon" sizes="152x152" href="/brand/apple-touch-icon-152x152.png">
   <link rel="stylesheet" href="/gallery.css"><script src="/gallery.js" defer></script>
 </head>
-<body>
+<body id="top">
   <div class="hero"><div class="wallpaper-lights" aria-hidden="true"></div>
     <header class="site-header"><a class="brand" href="https://picme.am" aria-label="PICME home"><img src="/brand/picme_logo_whitescale.svg" alt="PICME" width="156" height="59"></a><span class="header-note">PHOTO GALLERY</span></header>
     <section class="intro" aria-labelledby="page-title"><a id="event-back" class="event-back" hidden>← Back to event gallery</a><p id="event-info" class="event-info" hidden><span>Event</span><strong id="guest-event-id"></strong></p><h1 id="page-title">Photos</h1><p id="status" role="status" aria-live="polite">Opening your photos…</p><button id="refresh" class="secondary" type="button" hidden>Check for photos <span aria-hidden="true">↻</span></button></section>
@@ -21,7 +21,14 @@
     <section id="originals-section" hidden aria-labelledby="originals-title"><div class="section-heading"><div><h2 id="originals-title">Original photos</h2></div><span id="photo-count" class="count"></span></div><div id="originals" class="photo-grid"></div></section>
     <section id="waiting" class="waiting"><img src="/brand/picme_logo_colour.svg" alt="" width="112" height="42"><h2 id="waiting-title">Uploading photos…</h2><p id="waiting-detail">Please check back shortly.</p></section>
   </main>
-  <footer><a class="brand" href="https://picme.am" aria-label="Visit PICME"><img src="/brand/picme_logo_colour.svg" alt="PICME" width="112" height="42"></a><a href="https://picme.am">picme.am <span aria-hidden="true">↗</span></a></footer>
+  <footer class="gallery-footer">
+    <div class="footer-inner">
+      <div class="footer-brand"><a class="brand" href="https://picme.am" aria-label="Visit PICME"><img src="/brand/picme_logo_whitescale.svg" alt="PICME" width="132" height="50"></a><span>Yerevan, Armenia</span></div>
+      <address class="footer-contact"><a href="tel:+37494932053">+374 94 93 20 53</a><a href="mailto:info@picme.am">info@picme.am</a></address>
+      <nav class="footer-social" aria-label="Social media"><a href="https://www.facebook.com">Facebook <span aria-hidden="true">↗</span></a><a href="https://www.instagram.com">Instagram <span aria-hidden="true">↗</span></a></nav>
+      <div class="footer-bottom"><a href="https://picme.am">picme.am <span aria-hidden="true">↗</span></a><a href="#top">Back to top <span aria-hidden="true">↑</span></a></div>
+    </div>
+  </footer>
   <dialog id="preview" aria-labelledby="preview-title" aria-describedby="save-help">
     <div class="preview-toolbar"><div><h2 id="preview-title">Photo preview</h2></div><button id="close-preview" class="icon-button" type="button" aria-label="Close preview" autofocus>×</button></div>
     <div class="preview-stage"><button id="previous-photo" class="icon-button nav previous" type="button" aria-label="Previous photo">‹</button><img id="preview-image" alt=""><button id="next-photo" class="icon-button nav next" type="button" aria-label="Next photo">›</button></div>
