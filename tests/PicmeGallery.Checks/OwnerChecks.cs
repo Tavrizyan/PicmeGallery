@@ -117,6 +117,7 @@ internal static class OwnerChecks
         finally { photos.FailReads = false; }
         Check(interrupted, "Failed photo transfer aborts the ZIP instead of returning an incomplete success");
         await CheckVisibilityAsync(client, owner, store, token);
+        await CheckDeletionAsync(client, owner, store, photos, token);
         string version = store.Values["test-event"].Version;
         Check((await client.PostAsJsonAsync("/api/admin/events/test-event/replace", new { version = "stale" })).StatusCode == HttpStatusCode.Conflict, "Stale admin mutation cannot replace a link");
         var replaced = await client.PostAsJsonAsync("/api/admin/events/test-event/replace", new { version });
@@ -226,6 +227,91 @@ internal static class OwnerChecks
             "An old admin tab cannot overwrite subsequent hide/restore changes");
         await Set(MemoryPhotos.First, true);
     }
+    private static async Task CheckDeletionAsync(HttpClient admin, HttpClient owner, MemoryEvents events, MemoryPhotos photos, string token)
+    {
+        const string root = "/api/admin/events/test-event/sessions";
+        string session = MemoryPhotos.First, api = "/api/event/" + token;
+        string version() => events.Values["test-event"].Version;
+        async Task<HttpResponseMessage> Delete(bool value, string? expected = null) => await admin.PostAsJsonAsync($"{root}/{session}/deletion", new { deleted = value, version = expected ?? version() });
+        Check((await owner.PostAsJsonAsync($"{root}/{session}/deletion", new { deleted = true, version = version() })).StatusCode == HttpStatusCode.Unauthorized, "Delete requires admin authentication");
+        Check((await owner.GetAsync($"{root}/{session}/originals")).StatusCode == HttpStatusCode.Unauthorized, "Admin originals require authentication");
+        Check((await admin.GetAsync($"{root}/{MemoryPhotos.Other}/originals")).StatusCode == HttpStatusCode.NotFound &&
+            (await admin.GetAsync($"{root}/{MemoryPhotos.Other}/originals/001.jpg")).StatusCode == HttpStatusCode.NotFound, "Admin originals enforce event membership");
+        photos.Variants = true;
+        Check((await admin.GetAsync($"{root}/{session}/final?view=thumbnail")).Headers.Location?.AbsolutePath.Contains("/thumbnails/") == true &&
+            (await admin.GetAsync($"{root}/{session}/originals/002.png?view=preview")).Headers.Location?.AbsolutePath.EndsWith("/previews/002.jpg") == true,
+            "Admin final grids and original previews use advertised smaller images");
+        Check((await owner.GetAsync($"{api}/media/{session}/final?view=thumbnail")).StatusCode == HttpStatusCode.NotFound,
+            "Hidden sessions remain blocked even when requesting variants");
+        Check((await owner.GetAsync($"{api}/media/{MemoryPhotos.Second}/final?view=preview")).Headers.Location?.AbsolutePath.EndsWith("/previews/final.gif") == true,
+            "Owner animated Preview uses smaller GIF while download remains original");
+        photos.Variants = false;
+        var originals = await admin.GetFromJsonAsync<JsonElement>($"{root}/{session}/originals");
+        Check(originals.GetProperty("originals").GetArrayLength() == 2 &&
+            (await admin.GetAsync($"{root}/{session}/originals/002.png")).StatusCode == HttpStatusCode.Redirect, "Admin originals metadata and original media are available on demand");
+        Check((await Delete(true, "stale")).StatusCode == HttpStatusCode.Conflict, "Delete rejects stale versions");
+        string? csrf = admin.DefaultRequestHeaders.GetValues("X-CSRF-Token").Single();
+        admin.DefaultRequestHeaders.Remove("X-CSRF-Token");
+        Check((await Delete(true)).StatusCode == HttpStatusCode.BadRequest, "Delete requires CSRF protection");
+        admin.DefaultRequestHeaders.Add("X-CSRF-Token", csrf);
+        Check((await Delete(true)).StatusCode == HttpStatusCode.OK, "Delete starts recovery period");
+        var deleted = events.Values["test-event"].Record.DeletedSessions![session];
+        Check(deleted.DeleteAfterUtc - deleted.DeletedUtc == TimeSpan.FromDays(7), "Recovery period is exactly 7 days");
+        Check((await Delete(true)).StatusCode == HttpStatusCode.OK && events.Values["test-event"].Record.DeletedSessions![session] == deleted, "Repeated delete does not extend deadline");
+        var active = await admin.GetFromJsonAsync<JsonElement>(root);
+        var removed = await admin.GetFromJsonAsync<JsonElement>(root + "?filter=deleted");
+        Check(active.GetProperty("sessions").GetArrayLength() == 1 && removed.GetProperty("sessions")[0].GetProperty("sessionId").GetString() == session, "Deleted filter separates deleted sessions from active sessions");
+        Check((await admin.GetAsync($"{root}/{session}/final")).StatusCode == HttpStatusCode.Redirect &&
+            (await admin.GetAsync($"{root}/{session}/originals")).StatusCode == HttpStatusCode.OK, "Admins may preview deleted finals and originals during recovery");
+        foreach (string path in new[] { "/api/guest/" + MemoryPhotos.GuestToken, $"/api/media/{MemoryPhotos.GuestToken}/final", $"/api/media/{MemoryPhotos.GuestToken}/001.jpg?file=true", $"{api}/sessions/{session}", $"{api}/media/{session}/final" })
+            Check((await owner.GetAsync(path)).StatusCode == HttpStatusCode.NotFound, "Deleted session blocks guest and owner access: " + path.Split('/')[2]);
+        Check((await admin.PostAsJsonAsync($"{root}/{session}/visibility", new { hidden = false, version = version() })).StatusCode == HttpStatusCode.NotFound, "Visibility cannot change during deletion");
+        Check((await Delete(false)).StatusCode == HttpStatusCode.OK && events.Values["test-event"].Record.IsHidden(session), "Restore preserves previous hidden state");
+        Check((await owner.GetAsync("/api/guest/" + MemoryPhotos.GuestToken)).StatusCode == HttpStatusCode.OK, "Restore re-enables guest access");
+        await Delete(true);
+        var state = events.Values["test-event"];
+        var cleanup = new SessionCleanup(events, photos, Microsoft.Extensions.Options.Options.Create(new StorageSafetyOptions()), Microsoft.Extensions.Logging.Abstractions.NullLogger<SessionCleanup>.Instance);
+        await cleanup.RunOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        Check(photos.Deletions == 0, "Cleanup preserves photos during recovery");
+        var states = new Dictionary<string, DeletedSession>(state.Record.DeletedSessions!) { [session] = new(DateTimeOffset.UtcNow.AddDays(-7).AddSeconds(-1)) };
+        await events.SaveAsync(state.Record with { DeletedSessions = states }, state.Version, false, CancellationToken.None);
+        Check((await Delete(false)).StatusCode == HttpStatusCode.BadRequest &&
+            (await admin.GetAsync($"{root}/{session}/final")).StatusCode == HttpStatusCode.NotFound, "Expired recovery disables Restore and admin preview");
+        events.ConflictNextSave = true;
+        await cleanup.RunOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        Check(photos.Deletions == 0, "Cleanup does not delete when its claim conflicts with another writer");
+        photos.FailDeletion = true;
+        bool failed = false;
+        try { await cleanup.RunOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None); }
+        catch (IOException) { failed = true; }
+        Check(failed && events.Values["test-event"].Record.DeletedSessions![session].Purging, "Failed photo removal retains irreversible deletion marker for retry");
+        photos.FailDeletion = false;
+        await cleanup.RunOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        await cleanup.RunOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        Check(photos.Deletions == 2 && (await Delete(false)).StatusCode == HttpStatusCode.BadRequest, "Cleanup retries and sweeps late uploads without allowing resurrection");
+        Check((await owner.GetAsync("/api/guest/" + MemoryPhotos.GuestToken)).StatusCode == HttpStatusCode.NotFound, "A late booth upload cannot restore guest access");
+        Check((await admin.PostAsJsonAsync($"{root}/{MemoryPhotos.Second}/deletion", new { deleted = true, version = version() })).StatusCode == HttpStatusCode.OK, "Visible sessions can also be deleted");
+        var ownerListing = await owner.GetFromJsonAsync<JsonElement>(api);
+        Check(ownerListing.GetProperty("sessions").GetArrayLength() == 0, "Owner listing excludes deleted sessions even when previously visible");
+        var zipResponse = await owner.GetAsync(api + "/download");
+        using var zipBytes = new MemoryStream(await zipResponse.Content.ReadAsByteArrayAsync());
+        using var zip = new ZipArchive(zipBytes);
+        Check(zip.Entries.Count == 0, "Owner ZIP excludes deleted sessions even when previously visible");
+        Check((await admin.PostAsJsonAsync($"{root}/{MemoryPhotos.Second}/deletion", new { deleted = false, version = version() })).StatusCode == HttpStatusCode.OK &&
+            !events.Values["test-event"].Record.IsHidden(MemoryPhotos.Second), "Restore preserves visible state too");
+        state = events.Values["test-event"];
+        states = new Dictionary<string, DeletedSession>(state.Record.DeletedSessions!)
+        { [MemoryPhotos.Second] = new(DateTimeOffset.UtcNow.AddDays(-8)) };
+        await events.SaveAsync(state.Record with { DeletedSessions = states }, state.Version, false, CancellationToken.None);
+        events.GetReads = events.SaveWrites = 0;
+        int beforeCleanup = photos.Deletions;
+        await cleanup.RunOnceAsync(DateTimeOffset.UtcNow, CancellationToken.None);
+        Check(events.GetReads == 0 && events.SaveWrites == 1 && photos.Deletions == beforeCleanup + 2,
+            "Cleanup claims all expired sessions once per event without per-session registry rereads");
+        // Restore fixture state for the existing link rotation checks.
+        state = events.Values["test-event"];
+        await events.SaveAsync(state.Record with { DeletedSessions = null }, state.Version, false, CancellationToken.None);
+    }
     private sealed class Factory(MemoryEvents events, MemoryPhotos photos, bool configured = true) : WebApplicationFactory<global::Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -236,6 +322,7 @@ internal static class OwnerChecks
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureServices(services =>
             {
+                services.Remove(services.Single(service => service.ImplementationType == typeof(SessionCleanup)));
                 services.RemoveAll<IEventStore>(); services.RemoveAll<IEventPhotoStore>(); services.RemoveAll<IPhotoStore>();
                 services.AddSingleton<IEventStore>(events); services.AddSingleton<IEventPhotoStore>(photos); services.AddSingleton<IPhotoStore>(photos);
             });
@@ -245,6 +332,8 @@ internal static class OwnerChecks
     {
         public readonly Dictionary<string, StoredEvent> Values = [];
         public bool LastWriteAccessPointer { get; private set; }
+        public bool ConflictNextSave;
+        public int GetReads, SaveWrites;
         private int revision;
         public Task<EventListPage> ListAsync(string? continuation, CancellationToken cancellation)
         {
@@ -252,18 +341,26 @@ internal static class OwnerChecks
             var entries = Values.Values.Skip(offset).Take(12).ToArray();
             return Task.FromResult(new EventListPage(entries, offset + entries.Length < Values.Count ? (offset + entries.Length).ToString() : ""));
         }
-        public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) => Task.FromResult(Values.GetValueOrDefault(eventId));
+        public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) { GetReads++; return Task.FromResult(Values.GetValueOrDefault(eventId)); }
         public Task<StoredEvent?> ResolveAsync(string hash, CancellationToken cancellation) => Task.FromResult(Values.Values.FirstOrDefault(item => item.Record.TokenHash == hash));
         public Task SaveAsync(EventRecord record, string? expectedVersion, bool writeAccessPointer, CancellationToken cancellation)
         {
+            if (ConflictNextSave) { ConflictNextSave = false; throw new EventConflictException(); }
             if (Values.GetValueOrDefault(record.EventId)?.Version != expectedVersion) throw new EventConflictException();
+            SaveWrites++;
             LastWriteAccessPointer = writeAccessPointer;
             Values[record.EventId] = new(record, (++revision).ToString()); return Task.CompletedTask;
         }
     }
-    private sealed class MemoryPhotos : IPhotoStore, IEventPhotoStore
+    private sealed class MemoryPhotos : IPhotoStore, IEventPhotoStore, ISessionPhotoDeletion
     {
-        public bool FailReads;
+        public bool FailReads, FailDeletion, Variants;
+        public int Deletions;
+        public Task DeleteAsync(string sessionId, CancellationToken cancellation)
+        {
+            if (FailDeletion) throw new IOException("Simulated deletion failure");
+            Deletions++; return Task.CompletedTask;
+        }
         public static readonly string GuestToken = EventAccess.NewToken();
         public static readonly string First = GalleryContract.TokenHash(GuestToken)!, Second = new('b', 64), Other = new('c', 64);
         private static PhotoAsset Asset(string hash, string id) => new(id,
@@ -274,7 +371,9 @@ internal static class OwnerChecks
                 ? new GuestPhotos(Asset(hash, "final"), [Asset(hash, "001.jpg")]) : new GuestPhotos(null, []));
         public async Task<PhotoAsset?> GetAsync(string hash, string id, CancellationToken cancellation)
         {
-            var gallery = await FindAsync(hash, cancellation); return id == "final" ? gallery.Final : gallery.Originals.FirstOrDefault(photo => photo.Id == id);
+            var gallery = await FindAsync(hash, cancellation);
+            var photo = id == "final" ? gallery.Final : gallery.Originals.FirstOrDefault(photo => photo.Id == id);
+            return photo is null ? null : photo with { HasThumbnail = Variants, HasPreview = Variants };
         }
         public Task<EventPhotoPage> ListFinalsAsync(string eventId, string? continuation, CancellationToken cancellation) => Task.FromResult(eventId != "test-event"
             ? new EventPhotoPage([], "") : continuation is null ? new EventPhotoPage([new(First, Asset(First, "final"))], "second-page") : new EventPhotoPage([new(Second, Asset(Second, "final"))], ""));

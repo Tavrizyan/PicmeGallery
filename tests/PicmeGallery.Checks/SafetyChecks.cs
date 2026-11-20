@@ -110,6 +110,7 @@ internal static class SafetyChecks
             builder.ConfigureLogging(logging => logging.ClearProviders());
             builder.ConfigureServices(services =>
             {
+                services.Remove(services.Single(service => service.ImplementationType == typeof(SessionCleanup)));
                 services.RemoveAll<IEventStore>(); services.RemoveAll<IEventPhotoStore>(); services.RemoveAll<IPhotoStore>();
                 services.AddSingleton<IEventStore>(store); services.AddSingleton<IEventPhotoStore>(store); services.AddSingleton<IPhotoStore>(store);
             });

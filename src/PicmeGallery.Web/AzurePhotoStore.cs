@@ -2,12 +2,18 @@ using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace PicmeGallery.Web;
 
-public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore, IEventPhotoStore
+public sealed class AzurePhotoStore : IPhotoStore, IEventPhotoStore, ISessionPhotoDeletion, IDisposable
 {
-    private BlobContainerClient Container() => BlobStorage.Container(configuration);
+    private readonly Func<BlobContainerClient> container;
+    private readonly MemoryCache metadataCache = new(new MemoryCacheOptions { SizeLimit = 4096 });
+    public AzurePhotoStore(IConfiguration configuration) => container = () => BlobStorage.Container(configuration);
+    public AzurePhotoStore(BlobContainerClient client) => container = () => client;
+    private BlobContainerClient Container() => container();
+    public void Dispose() => metadataCache.Dispose();
     public async Task<GuestPhotos> FindAsync(string hash, CancellationToken token)
     {
         var container = Container();
@@ -21,6 +27,7 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore,
             if (!tagged.BlobName.StartsWith(prefix, StringComparison.Ordinal)) continue;
             string id = tagged.BlobName[prefix.Length..];
             if (id == "final" || !GalleryContract.ValidAssetId(id)) continue;
+            if (originals.Values.Any(photo => photo.Id == id)) continue;
             var photo = await GetAsync(hash, id, token);
             if (photo is not null && photo.EventId == final.EventId && photo.ExpectedOriginals == final.ExpectedOriginals) originals[photo.Index] = photo;
             if (originals.Count >= final.ExpectedOriginals) break;
@@ -31,6 +38,7 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore,
         {
             string id = blob.Name[("sessions/" + hash + "/originals/").Length..];
             if (id == "final" || !GalleryContract.ValidAssetId(id)) continue;
+            if (originals.Values.Any(photo => photo.Id == id)) continue;
             var photo = await GetAsync(hash, id, token);
             if (photo is not null && photo.EventId == final.EventId && photo.ExpectedOriginals == final.ExpectedOriginals) originals[photo.Index] = photo;
             if (originals.Count >= final.ExpectedOriginals) break;
@@ -39,7 +47,10 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore,
     }
     public async Task<PhotoAsset?> GetAsync(string hash, string id, CancellationToken token)
     {
-        if (!GalleryContract.ValidAssetId(id)) return null;
+        token.ThrowIfCancellationRequested();
+        if (!GalleryContract.ValidHash(hash) || !GalleryContract.ValidAssetId(id)) return null;
+        string key = hash + "/" + id;
+        if (metadataCache.TryGetValue(key, out PhotoAsset? cached)) return cached;
         var container = Container();
         string[] names = id == "final" ? [GalleryContract.BlobName(hash, id), "sessions/" + hash + "/final.gif"] : [GalleryContract.BlobName(hash, id)];
         foreach (string name in names)
@@ -51,7 +62,10 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore,
                 var tags = (await blob.GetTagsAsync(cancellationToken: token)).Value.Tags;
                 var asset = GalleryContract.Parse(hash, id, properties.ContentLength, properties.ContentType,
                     properties.AccessTier?.ToString(), tags, properties.Metadata);
-                return asset?.BlobName == name ? asset : null;
+                if (asset?.BlobName != name) return null;
+                // Uploads are immutable; cache only successful validation, never access/deletion state or pending assets.
+                metadataCache.Set(key, asset, new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5), Size = 1 });
+                return asset;
             }
             catch (RequestFailedException error) when (error.Status == 404) { }
         }
@@ -74,6 +88,17 @@ public sealed class AzurePhotoStore(IConfiguration configuration) : IPhotoStore,
             return new(sessions.Values.ToArray(), string.IsNullOrEmpty(page.ContinuationToken) ? null : page.ContinuationToken);
         }
         return new([], null);
+    }
+    public async Task DeleteAsync(string sessionId, CancellationToken cancellation)
+    {
+        if (!GalleryContract.ValidHash(sessionId)) throw new ArgumentException("Invalid session ID.");
+        var container = Container();
+        await foreach (var blob in container.GetBlobsAsync(BlobTraits.None, BlobStates.None, "sessions/" + sessionId + "/", cancellation))
+        {
+            await container.GetBlobClient(blob.Name).DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, cancellationToken: cancellation);
+            string id = blob.Name.StartsWith("sessions/" + sessionId + "/originals/", StringComparison.Ordinal) ? Path.GetFileName(blob.Name) : "final";
+            metadataCache.Remove(sessionId + "/" + id);
+        }
     }
     public async Task<Stream> OpenReadAsync(PhotoAsset asset, CancellationToken token)
     {

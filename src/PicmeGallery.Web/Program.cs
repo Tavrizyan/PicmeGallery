@@ -7,6 +7,8 @@ builder.Services.AddSingleton<AzurePhotoStore>();
 builder.Services.AddSingleton<IPhotoStore>(services => services.GetRequiredService<AzurePhotoStore>());
 builder.Services.AddSingleton<IEventPhotoStore>(services => services.GetRequiredService<AzurePhotoStore>());
 builder.Services.AddSingleton<IEventStore, AzureEventStore>();
+builder.Services.AddSingleton<ISessionPhotoDeletion>(services => services.GetRequiredService<AzurePhotoStore>());
+builder.Services.AddHostedService<SessionCleanup>();
 builder.Services.AddSingleton<EventCatalog>();
 builder.Services.AddGalleryAdministration(builder.Configuration);
 builder.Services.AddOptions<StorageSafetyOptions>().BindConfiguration("StorageSafety")
@@ -59,16 +61,18 @@ app.UseStaticFiles();
 app.MapGalleryAdministration();
 app.MapOwnerGallery();
 app.MapGet("/health", () => Results.Ok(new { service = "PicmeGallery", status = "running" }));
-app.MapGet("/api/guest/{token}", async (string token, IPhotoStore store, CancellationToken cancellation) =>
+app.MapGet("/api/guest/{token}", async (string token, IPhotoStore store, IEventStore events, CancellationToken cancellation) =>
 {
     string? hash = GalleryContract.TokenHash(token);
     if (hash is null) return Results.NotFound();
     var photos = await store.FindAsync(hash, cancellation);
+    if (photos.Final is not null && (await events.GetAsync(photos.Final.EventId, cancellation))?.Record.IsDeleted(hash) == true) return Results.NotFound();
     object Describe(PhotoAsset p) => new
     {
         id = p.Id, bytes = p.Bytes, capturedUtc = p.CapturedUtc, fileName = p.FileName, contentType = p.ContentType,
         fileUrl = $"/api/media/{token}/{p.Id}?file=true",
-        previewUrl = $"/api/media/{token}/{p.Id}", downloadUrl = $"/api/media/{token}/{p.Id}?download=true"
+        thumbnailUrl = $"/api/media/{token}/{p.Id}?view=thumbnail",
+        previewUrl = $"/api/media/{token}/{p.Id}?view=preview", originalUrl = $"/api/media/{token}/{p.Id}", downloadUrl = $"/api/media/{token}/{p.Id}?download=true"
     };
     int expected = photos.Final?.ExpectedOriginals ?? 0;
     return Results.Ok(new
@@ -79,16 +83,16 @@ app.MapGet("/api/guest/{token}", async (string token, IPhotoStore store, Cancell
         final = photos.Final is null ? null : Describe(photos.Final), originals = photos.Originals.Select(Describe).ToArray()
     });
 });
-app.MapGet("/api/media/{token}/{id}", async (string token, string id, bool? download, bool? file, IPhotoStore store, CancellationToken cancellation) =>
+app.MapGet("/api/media/{token}/{id}", async (string token, string id, bool? download, bool? file, string? view, IPhotoStore store, IEventStore events, CancellationToken cancellation) =>
 {
     string? hash = GalleryContract.TokenHash(token);
     if (hash is null || !GalleryContract.ValidAssetId(id)) return Results.NotFound();
     var photo = await store.GetAsync(hash, id, cancellation);
-    if (photo is null) return Results.NotFound();
+    if (photo is null || (await events.GetAsync(photo.EventId, cancellation))?.Record.IsDeleted(hash) == true) return Results.NotFound();
     // Same-origin bytes allow native file sharing without requiring Azure CORS or exposing SAS URLs to JS.
     if (file == true) return Results.Stream(await store.OpenReadAsync(photo, cancellation), photo.ContentType,
         fileDownloadName: download == true ? photo.FileName : null);
-    return Results.Redirect(store.DownloadUrl(photo, download == true).AbsoluteUri);
+    return Results.Redirect(store.DownloadUrl(download == true ? photo : photo.Browse(view), download == true).AbsoluteUri);
 });
 app.MapGet("/p/{token}", (string token, IWebHostEnvironment environment) => GalleryContract.TokenHash(token) is null ?
     Results.NotFound() : Results.File(Path.Combine(environment.WebRootPath, "index.html"), "text/html"));

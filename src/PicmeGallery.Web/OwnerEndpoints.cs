@@ -27,7 +27,7 @@ public static class OwnerEndpoints
         {
             var record = Event(context);
             if (!Cursors.TryRead(protection, "event:" + record.EventId, cursor, out string? continuation)) return Results.BadRequest(new { message = "Invalid page. Refresh the gallery." });
-            var page = await SessionPages.ReadAsync(photos, record.EventId, continuation, session => !record.IsHidden(session.SessionId), cancellation, safety.Value.MaxPagesPerRequest);
+            var page = await SessionPages.ReadAsync(photos, record.EventId, continuation, session => !record.IsHidden(session.SessionId) && !record.IsDeleted(session.SessionId), cancellation, safety.Value.MaxPagesPerRequest);
             return Results.Ok(new
             {
                 name = record.Name,
@@ -43,7 +43,7 @@ public static class OwnerEndpoints
         });
         api.MapGet("/sessions/{sessionId}", async (string token, string sessionId, HttpContext context, IPhotoStore store, CancellationToken cancellation) =>
         {
-            if (!GalleryContract.ValidHash(sessionId) || Event(context).IsHidden(sessionId)) return Results.NotFound();
+            if (!GalleryContract.ValidHash(sessionId) || (Event(context).IsHidden(sessionId) || Event(context).IsDeleted(sessionId))) return Results.NotFound();
             var photos = await store.FindAsync(sessionId, cancellation);
             if (photos.Final?.EventId != Event(context).EventId) return Results.NotFound();
             return Results.Ok(new
@@ -54,16 +54,16 @@ public static class OwnerEndpoints
                 final = Describe(token, sessionId, photos.Final), originals = photos.Originals.Select(photo => Describe(token, sessionId, photo))
             });
         });
-        api.MapGet("/media/{sessionId}/{id}", async (string sessionId, string id, bool? download, bool? file, HttpContext context, IPhotoStore store, CancellationToken cancellation) =>
+        api.MapGet("/media/{sessionId}/{id}", async (string sessionId, string id, bool? download, bool? file, string? view, HttpContext context, IPhotoStore store, CancellationToken cancellation) =>
         {
-            if (!GalleryContract.ValidHash(sessionId) || !GalleryContract.ValidAssetId(id) || Event(context).IsHidden(sessionId)) return Results.NotFound();
+            if (!GalleryContract.ValidHash(sessionId) || !GalleryContract.ValidAssetId(id) || (Event(context).IsHidden(sessionId) || Event(context).IsDeleted(sessionId))) return Results.NotFound();
             var final = await store.GetAsync(sessionId, "final", cancellation);
             if (final?.EventId != Event(context).EventId) return Results.NotFound();
             var photo = id == "final" ? final : await store.GetAsync(sessionId, id, cancellation);
             if (photo is null || photo.EventId != final.EventId || photo.ExpectedOriginals != final.ExpectedOriginals) return Results.NotFound();
             if (file == true) return Results.Stream(await store.OpenReadAsync(photo, cancellation), photo.ContentType,
                 fileDownloadName: download == true ? photo.FileName : null);
-            return Results.Redirect(store.DownloadUrl(photo, download == true).AbsoluteUri);
+            return Results.Redirect(store.DownloadUrl(download == true ? photo : photo.Browse(view), download == true).AbsoluteUri);
         });
         api.MapGet("/download", (HttpContext context, IEventPhotoStore events, IPhotoStore photos, ILoggerFactory logging, IOptions<StorageSafetyOptions> safety) =>
         {
@@ -87,7 +87,7 @@ public static class OwnerEndpoints
                         var page = await events.ListFinalsAsync(record.EventId, cursor, cancellation);
                         foreach (var session in page.Sessions)
                         {
-                            if (!seen.Add(session.SessionId) || record.IsHidden(session.SessionId)) continue;
+                            if (!seen.Add(session.SessionId) || (record.IsHidden(session.SessionId) || record.IsDeleted(session.SessionId))) continue;
                             var gallery = await photos.FindAsync(session.SessionId, cancellation);
                             if (gallery.Final?.EventId != record.EventId) continue;
                             foreach (var photo in new[] { gallery.Final }.Concat(gallery.Originals))
@@ -116,7 +116,9 @@ public static class OwnerEndpoints
     private static object Describe(string token, string sessionId, PhotoAsset photo) => new
     {
         id = photo.Id, bytes = photo.Bytes, capturedUtc = photo.CapturedUtc, fileName = photo.FileName, contentType = photo.ContentType,
-        previewUrl = $"/api/event/{token}/media/{sessionId}/{photo.Id}",
+        thumbnailUrl = $"/api/event/{token}/media/{sessionId}/{photo.Id}?view=thumbnail",
+        previewUrl = $"/api/event/{token}/media/{sessionId}/{photo.Id}?view=preview",
+        originalUrl = $"/api/event/{token}/media/{sessionId}/{photo.Id}",
         downloadUrl = $"/api/event/{token}/media/{sessionId}/{photo.Id}?download=true",
         fileUrl = $"/api/event/{token}/media/{sessionId}/{photo.Id}?file=true"
     };

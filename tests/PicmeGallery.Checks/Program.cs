@@ -62,6 +62,18 @@ internal static class Checks
         Check(waiting.GetProperty("state").GetString() == "waiting" && waiting.GetProperty("originals").GetArrayLength() == 0, "Unknown guest sees no other photos");
         Check(waiting.GetProperty("eventId").ValueKind == JsonValueKind.Null, "Unknown guest cannot learn another event ID");
         store.FinalAvailable = true;
+        store.Variants = true;
+        var thumb = await client.GetAsync($"/api/media/{token}/final?view=thumbnail");
+        Check(thumb.Headers.Location?.AbsolutePath.EndsWith("/thumbnails/final.jpg") == true, "Guest grid reads the advertised small image");
+        var preview = await client.GetAsync($"/api/media/{token}/final?view=preview");
+        Check(preview.Headers.Location?.AbsolutePath.EndsWith("/previews/final.jpg") == true, "Guest Preview reads the advertised reduced image");
+        var original = await client.GetAsync($"/api/media/{token}/final?view=thumbnail&download=true");
+        Check(original.Headers.Location?.AbsolutePath.EndsWith("/" + hash + "/final.jpg") == true, "Download always uses original even if a browsing view was supplied");
+        var originalFile = await client.GetAsync($"/api/media/{token}/final?view=preview&file=true");
+        Check((await originalFile.Content.ReadAsByteArrayAsync()).SequenceEqual(FakeStore.ImageBytes), "Native sharing streams original bytes even if a browsing view was supplied");
+        store.Variants = false;
+        var legacy = await client.GetAsync($"/api/media/{token}/final?view=thumbnail");
+        Check(legacy.Headers.Location?.AbsolutePath.EndsWith("/" + hash + "/final.jpg") == true, "Old booth uploads keep working before derivatives exist");
         var partial = await client.GetFromJsonAsync<JsonElement>("/api/guest/" + token);
         Check(partial.GetProperty("state").GetString() == "uploading" && partial.GetProperty("expectedOriginals").GetInt32() == 2, "Final appears while originals pending");
         Check(partial.GetProperty("eventId").GetString() == "anna-david", "Guest QR gallery exposes its own Event ID as soon as the final is available");
@@ -99,6 +111,7 @@ internal static class Checks
         using var restarted = cleanFactory.CreateClient();
         Check((await restarted.GetAsync("/health")).StatusCode == HttpStatusCode.OK, "Fresh stateless instance starts without database");
         Console.WriteLine($"PASS: {count} gallery contract/access/HTTP checks.");
+        await StorageCostChecks.RunAsync();
         await OwnerChecks.RunAsync();
         await SafetyChecks.RunAsync();
     }
@@ -108,14 +121,22 @@ internal static class Checks
         {
             builder.UseContentRoot(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/PicmeGallery.Web")));
             builder.ConfigureLogging(logging => logging.ClearProviders());
-            builder.ConfigureServices(services => { services.RemoveAll<IPhotoStore>(); services.AddSingleton<IPhotoStore>(store); });
+            builder.ConfigureServices(services => {
+                services.Remove(services.Single(service => service.ImplementationType == typeof(SessionCleanup))); services.RemoveAll<IPhotoStore>(); services.AddSingleton<IPhotoStore>(store); services.RemoveAll<IEventStore>(); services.AddSingleton<IEventStore>(new EmptyEvents()); });
         }
+    }
+    private sealed class EmptyEvents : IEventStore
+    {
+        public Task<StoredEvent?> GetAsync(string eventId, CancellationToken cancellation) => Task.FromResult<StoredEvent?>(null);
+        public Task<StoredEvent?> ResolveAsync(string hash, CancellationToken cancellation) => Task.FromResult<StoredEvent?>(null);
+        public Task<EventListPage> ListAsync(string? cursor, CancellationToken cancellation) => Task.FromResult(new EventListPage([], null));
+        public Task SaveAsync(EventRecord record, string? version, bool writeAccessPointer, CancellationToken cancellation) => throw new NotSupportedException();
     }
     private sealed class FakeStore(string permittedHash) : IPhotoStore
     {
-        public bool FinalAvailable, Fail, GifFinal; public int OriginalsAvailable;
+        public bool FinalAvailable, Fail, GifFinal, Variants; public int OriginalsAvailable;
         public static readonly byte[] ImageBytes = [0xff, 0xd8, 0xff, 0xd9];
-        private PhotoAsset Asset(string id) => new(id, GifFinal && id == "final" ? $"sessions/{permittedHash}/final.gif" : GalleryContract.BlobName(permittedHash, id), "anna-david", 120, id == "final" ? 0 : int.Parse(id[..3]), 2, "2020-01-01T00:00:00Z");
+        private PhotoAsset Asset(string id) => new(id, GifFinal && id == "final" ? $"sessions/{permittedHash}/final.gif" : GalleryContract.BlobName(permittedHash, id), "anna-david", 120, id == "final" ? 0 : int.Parse(id[..3]), 2, "2020-01-01T00:00:00Z", HasThumbnail: Variants, HasPreview: Variants);
         public Task<GuestPhotos> FindAsync(string hash, CancellationToken token)
         {
             if (Fail) throw new InvalidOperationException("AccountKey=DO-NOT-EXPOSE");

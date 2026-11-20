@@ -17,11 +17,19 @@
   const orderedPhotos = () => [...assets.values()].sort((a, b) => a.id === "final" ? -1 : b.id === "final" ? 1 : a.id.localeCompare(b.id));
   byId("save-final").hidden = !mobile;
   byId("save-help").textContent = ios
-    ? "Tap Save to Photos, then choose Save Image."
+    ? "Tap Save to Photos to prepare the original, then tap again and choose Save Image."
     : android
-      ? "Save / share to your gallery, or find downloaded photos in Downloads."
+      ? "Tap Save / share to prepare the original, then tap again to save it to your gallery."
       : "Download the original in full quality.";
 
+  function imageSource(image, url, originalUrl) {
+    image.dataset.originalUrl = originalUrl || url; image.src = url;
+  }
+  function fallbackImage(image) {
+    const original = image.dataset.originalUrl;
+    if (!original || image.src === new URL(original, location.href).href) return false;
+    image.src = original; return true;
+  }
   function updateNavigation() {
     const photos = orderedPhotos(), index = photos.findIndex(photo => photo.id === selectedId);
     byId("preview-count").textContent = `${index + 1} / ${photos.length}`;
@@ -65,11 +73,16 @@
     saveStatus.textContent = "";
     byId("preview-title").textContent = photo.label;
     previewImage.alt = photo.label;
-    previewImage.src = photo.previewUrl;
+    imageSource(previewImage, photo.previewUrl, photo.originalUrl);
     byId("download-photo").href = photo.downloadUrl;
     byId("download-photo").download = photo.fileName;
     updateNavigation();
-    prepareShare(photo);
+    shareButton.hidden = true; shareButton.disabled = false;
+    if (window.isSecureContext && navigator.share && navigator.canShare && photo.bytes <= 50 * 1024 * 1024) {
+      try { shareButton.hidden = !navigator.canShare({ files: [new File([""], photo.fileName, { type: photo.contentType })] }); }
+      catch { shareButton.hidden = true; }
+    }
+    shareButton.textContent = ios ? "Save to Photos" : android ? "Save / share" : "Share photo";
   }
   function movePreview(direction) {
     const photos = orderedPhotos(), index = photos.findIndex(photo => photo.id === selectedId);
@@ -100,9 +113,16 @@
     if (Date.now() - touchStart.time < 600 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) movePreview(dx > 0 ? -1 : 1);
     touchStart = null;
   }, { passive: true });
-  previewImage.addEventListener("error", () => { saveStatus.textContent = "The preview couldn’t load. Try downloading the original, or close and reopen this preview."; });
+  previewImage.addEventListener("error", () => { if (fallbackImage(previewImage)) return; saveStatus.textContent = "The preview couldn’t load. Try downloading the original, or close and reopen this preview."; });
   shareButton.addEventListener("click", async () => {
-    if (!preparedFile || sharing) return;
+    if (sharing) return;
+    if (!preparedFile) {
+      const photo = assets.get(selectedId);
+      if (photo) await prepareShare(photo);
+      if (preparedFile && dialog.open) saveStatus.textContent = ios ? "Photo ready. Tap Save to Photos again." : "Photo ready. Tap Save / share again.";
+      return;
+    }
+    saveStatus.textContent = "";
     sharing = true; shareButton.disabled = true;
     try {
       // The file is already loaded, so share() runs directly within the user's tap on iOS as well.
@@ -129,19 +149,19 @@
       polls = 0;
       for (const image of grid.querySelectorAll('img[data-failed="true"]')) {
         image.dataset.failed = "false";
-        image.src = image.dataset.previewUrl + "?retry=" + Date.now();
+        image.src = image.dataset.previewUrl + (image.dataset.previewUrl.includes("?") ? "&" : "?") + "retry=" + Date.now();
       }
     }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 25000);
     try {
       const response = await fetch(galleryUrl, { cache: "no-store", signal: controller.signal });
-      if (response.status === 404 && ownerSession) {
+      if (response.status === 404) {
         if (dialog.open) dialog.close();
         assets.clear(); grid.replaceChildren(); byId("final-image").removeAttribute("src");
         byId("final-section").hidden = byId("originals-section").hidden = byId("event-info").hidden = true;
         waiting.hidden = false; byId("waiting-title").textContent = "This session is unavailable.";
-        byId("waiting-detail").textContent = "Return to the event gallery.";
+        byId("waiting-detail").textContent = ownerSession ? "Return to the event gallery." : "Try Refresh later, or ask the event organizer.";
       }
       if (!response.ok) throw new Error(response.status === 404 ? (ownerSession ? "This event link or session is unavailable. Ask the organizer for a current link." : "This photo link could not be opened. Please scan the QR on your print again.") : "Your photos are temporarily unavailable. Please try again shortly.");
       const photos = await response.json(); status.classList.remove("error");
@@ -150,7 +170,7 @@
       if (photos.final) {
         assets.set("final", { ...photos.final, label: photos.final.contentType === "image/gif" ? "Your animated moment" : "Finished print" });
         const image = byId("final-image");
-        if (!image.getAttribute("src")) image.src = photos.final.previewUrl;
+        if (!image.getAttribute("src")) imageSource(image, photos.final.previewUrl, photos.final.originalUrl);
         byId("final-title").textContent = assets.get("final").label;
         byId("download-final").href = photos.final.downloadUrl;
         byId("download-final").download = photos.final.fileName;
@@ -162,9 +182,9 @@
         assets.set(photo.id, { ...photo, label });
         const card = document.createElement("article"); card.className = "photo-card"; card.dataset.photoId = photo.id;
         const preview = document.createElement("button"); preview.type = "button"; preview.className = "photo-preview"; preview.setAttribute("aria-label", `Preview ${label.toLowerCase()}`);
-        const image = document.createElement("img"); image.loading = "lazy"; image.alt = label; image.src = photo.previewUrl;
-        image.dataset.previewUrl = photo.previewUrl;
-        image.addEventListener("error", () => { image.dataset.failed = "true"; refresh.hidden = false; });
+        const image = document.createElement("img"); image.loading = "lazy"; image.alt = label; imageSource(image, photo.thumbnailUrl || photo.previewUrl, photo.originalUrl);
+        image.dataset.previewUrl = photo.thumbnailUrl || photo.previewUrl;
+        image.addEventListener("error", () => { if (fallbackImage(image)) return; image.dataset.failed = "true"; refresh.hidden = false; });
         const hint = document.createElement("span"); hint.className = "preview-hint"; hint.textContent = "Preview ↗"; hint.setAttribute("aria-hidden", "true");
         preview.append(image, hint); preview.addEventListener("click", () => openPreview(photo.id, preview));
         const actions = document.createElement("div"); actions.className = "card-actions";
@@ -201,6 +221,7 @@
   refresh.addEventListener("click", () => load(true));
   document.addEventListener("visibilitychange", () => { if (document.hidden) clearTimeout(timer); else load(); });
   byId("final-image").addEventListener("error", event => {
+    if (fallbackImage(event.target)) return;
     refresh.hidden = false;
     event.target.removeAttribute("src"); status.textContent = "The image could not load. Use Check for photos to try again.";
   });

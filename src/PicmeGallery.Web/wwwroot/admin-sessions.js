@@ -4,16 +4,30 @@
   const eventId = /^\/admin\/events\/([a-z0-9][a-z0-9_-]{0,63})\/sessions\/?$/.exec(location.pathname)?.[1];
   const base = `/api/admin/events/${encodeURIComponent(eventId)}/sessions`, grid = byId("managed-sessions");
   const cards = new Map(), dialog = byId("session-preview");
-  let csrf, version, nextCursor, loading = false, saving = false, returnFocus;
+  let csrf, version, nextCursor, loading = false, saving = false, returnFocus, previewSession, pendingDelete, originalsRequest;
+  const originals = byId("session-originals"), originalsToggle = byId("show-session-originals"), deleteDialog = byId("delete-session-confirm");
+  function resetOriginals() {
+    originalsRequest?.abort(); originalsRequest = undefined;
+    originals.hidden = true; originals.replaceChildren();
+    originalsToggle.textContent = "Show originals"; originalsToggle.setAttribute("aria-expanded", "false");
+  }
+  function imageSource(image, url, originalUrl) {
+    image.dataset.originalUrl = originalUrl || url; image.src = url;
+  }
+  function fallbackImage(image) {
+    const original = image.dataset.originalUrl;
+    if (!original || image.src === new URL(original, location.href).href) return false;
+    image.src = original; return true;
+  }
   function notice(message, error = false) { status.textContent = message; status.classList.toggle("error", error); }
   function controls() {
     filter.disabled = byId("refresh-sessions").disabled = byId("more-sessions").disabled = loading || saving;
-    for (const button of grid.querySelectorAll(".visibility-toggle")) button.disabled = loading || saving;
+    for (const button of grid.querySelectorAll(".session-mutation")) button.disabled = loading || saving;
   }
-  async function request(url, body) {
+  async function request(url, body, signal) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const response = await fetch(url, { cache: "no-store", signal: controller.signal, method: body === undefined ? "GET" : "POST",
+      const response = await fetch(url, { cache: "no-store", signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal, method: body === undefined ? "GET" : "POST",
         headers: body === undefined ? {} : { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -26,38 +40,85 @@
     finally { clearTimeout(timeout); }
   }
   function preview(session, button) {
-    returnFocus = button; byId("session-preview-image").src = session.previewUrl;
-    byId("session-preview-title").textContent = session.hidden ? "Hidden from event owner" : "Visible to event owner";
-    byId("session-preview-status").textContent = "The guest’s printed QR continues to open this session.";
+    resetOriginals(); previewSession = session;
+    returnFocus = button; imageSource(byId("session-preview-image"), session.previewUrl, session.originalUrl);
+    byId("session-preview-title").textContent = session.deleteAfterUtc ? "Deleted session · recovery available" : session.hidden ? "Hidden from event owner" : "Visible to event owner";
+    byId("session-preview-status").textContent = session.deleteAfterUtc ? "Guest access is disabled. Recovery ends " + new Date(session.deleteAfterUtc).toLocaleString() + "." : "The guest’s printed QR continues to open this session.";
     dialog.showModal(); document.body.classList.add("preview-open");
   }
   byId("close-session-preview").addEventListener("click", () => dialog.close());
-  dialog.addEventListener("close", () => { byId("session-preview-image").removeAttribute("src"); document.body.classList.remove("preview-open"); returnFocus?.focus(); });
+  dialog.addEventListener("close", () => { resetOriginals(); previewSession = undefined; byId("session-preview-image").removeAttribute("src"); document.body.classList.remove("preview-open"); returnFocus?.focus(); });
   dialog.addEventListener("click", event => {
     if (event.target !== dialog) return;
     const box = dialog.getBoundingClientRect();
     if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
   });
-  byId("session-preview-image").addEventListener("error", () => { byId("session-preview-status").textContent = "This preview could not load. Close it and try Refresh sessions."; });
+  byId("session-preview-image").addEventListener("error", event => { if (fallbackImage(event.target)) return; byId("session-preview-status").textContent = "This preview could not load. Close it and try Refresh sessions."; });
+  originalsToggle.addEventListener("click", async () => {
+    if (!originals.hidden) { resetOriginals(); byId("session-preview-status").textContent = "Originals hidden."; return; }
+    if (!previewSession) return;
+    const session = previewSession, controller = new AbortController();
+    originalsRequest = controller; originals.hidden = false;
+    originalsToggle.textContent = "Hide originals"; originalsToggle.setAttribute("aria-expanded", "true");
+    byId("session-preview-status").textContent = "Loading originals…";
+    try {
+      const data = await request(`${base}/${session.sessionId}/originals`, undefined, controller.signal);
+      if (controller.signal.aborted || previewSession !== session) return;
+      for (const photo of data.originals) {
+        const card = document.createElement("div"); card.className = "photo-card";
+        const image = document.createElement("img"); image.alt = "Original " + photo.id; image.loading = "lazy"; imageSource(image, photo.previewUrl, photo.originalUrl);
+        image.addEventListener("error", () => { if (fallbackImage(image)) return; if (previewSession === session) byId("session-preview-status").textContent = "An original could not load. Hide originals and try again."; });
+        card.append(image); originals.append(card);
+      }
+      byId("session-preview-status").textContent = `${data.originals.length} of ${data.expectedOriginals} originals available.` +
+        (data.originals.length < data.expectedOriginals ? " Uploads may still be pending. Hide originals and try again shortly." : "");
+    } catch (error) {
+      if (controller.signal.aborted || previewSession !== session) return;
+      resetOriginals(); byId("session-preview-status").textContent = error.message;
+    }
+  });
+  byId("cancel-session-delete").addEventListener("click", () => deleteDialog.close());
+  deleteDialog.addEventListener("close", () => { const button = pendingDelete?.button; pendingDelete = undefined; button?.focus(); });
+  byId("accept-session-delete").addEventListener("click", () => {
+    const session = pendingDelete?.session; deleteDialog.close();
+    if (session) changeDeletion(session);
+  });
   function add(session) {
     if (cards.has(session.sessionId)) return;
     const number = cards.size + 1, card = document.createElement("article"); card.className = "photo-card";
-    card.classList.toggle("hidden-session", session.hidden); card.dataset.sessionId = session.sessionId;
+    card.classList.toggle("hidden-session", session.hidden || !!session.deleteAfterUtc); card.dataset.sessionId = session.sessionId;
     const button = document.createElement("button"); button.className = "photo-preview"; button.type = "button";
     button.setAttribute("aria-label", `Preview session ${number}`);
-    const image = document.createElement("img"); image.src = session.previewUrl; image.loading = "lazy"; image.alt = `Finished print for session ${number}`;
-    const badge = document.createElement("span"); badge.className = "visibility-badge"; badge.textContent = session.hidden ? "Hidden" : "Visible";
+    const image = document.createElement("img"); imageSource(image, session.thumbnailUrl || session.previewUrl, session.originalUrl);
+    image.addEventListener("error", () => { fallbackImage(image); }); image.loading = "lazy"; image.alt = `Finished print for session ${number}`;
+    const badge = document.createElement("span"); badge.className = "visibility-badge"; badge.textContent = session.deleteAfterUtc ? "Deleted" : session.hidden ? "Hidden" : "Visible";
     const hint = document.createElement("span"); hint.className = "preview-hint"; hint.textContent = "Preview ↗"; hint.setAttribute("aria-hidden", "true");
     button.append(image, badge, hint); button.addEventListener("click", () => preview(session, button));
     const actions = document.createElement("div"); actions.className = "card-actions managed-card-actions";
     const date = document.createElement("span"); date.className = "photo-label";
     const captured = new Date(session.capturedUtc);
     date.textContent = session.capturedUtc && !Number.isNaN(captured.valueOf()) ? captured.toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : `Session ${number}`;
-    const toggle = document.createElement("button"); toggle.className = "secondary visibility-toggle"; toggle.type = "button";
+    const toggle = document.createElement("button"); toggle.className = "secondary visibility-toggle session-mutation"; toggle.type = "button";
     toggle.textContent = session.hidden ? "Restore to owner" : "Hide from owner";
     toggle.setAttribute("aria-label", `${session.hidden ? "Restore" : "Hide"} session ${number} ${session.hidden ? "for" : "from"} event owner`);
     toggle.addEventListener("click", () => changeVisibility(session));
-    actions.append(date, toggle); card.append(button, actions); cards.set(session.sessionId, card); grid.append(card);
+    const deletion = document.createElement("button"); deletion.className = "secondary session-mutation" + (session.deleteAfterUtc ? "" : " danger"); deletion.type = "button";
+    deletion.textContent = session.deleteAfterUtc ? "Restore session" : "Delete session";
+    deletion.addEventListener("click", () => {
+      if (loading || saving) return;
+      if (session.deleteAfterUtc) { changeDeletion(session); return; }
+      pendingDelete = { session, button: deletion };
+      byId("delete-session-detail").textContent = `Delete ${date.textContent}? It will disappear from the owner’s gallery and guest QR access will stop. You can restore it for 7 days. After that, photos will be permanently removed by automatic cleanup. Already-open photo links may work for up to five minutes.`;
+      deleteDialog.showModal();
+    });
+    actions.append(date);
+    if (session.deleteAfterUtc) {
+      const remaining = document.createElement("span"); remaining.className = "photo-label";
+      const hours = Math.max(0, Math.ceil((new Date(session.deleteAfterUtc) - Date.now()) / 3600000));
+      remaining.textContent = `${hours} hours to restore · Until ${new Date(session.deleteAfterUtc).toLocaleString()}`;
+      actions.append(remaining);
+    } else actions.append(toggle);
+    actions.append(deletion); card.append(button, actions); cards.set(session.sessionId, card); grid.append(card);
   }
   async function load(reset = false) {
     if (loading) return;
@@ -86,6 +147,21 @@
     } catch (error) {
       if (error.status === 409) {
         try { await load(true); } catch { /* Preserve the conflict message; Refresh remains available. */ }
+      }
+      notice(error.message, true);
+    } finally { saving = false; controls(); }
+  }
+  async function changeDeletion(session) {
+    if (loading || saving) return;
+    saving = true; controls();
+    try {
+      await request(`${base}/${session.sessionId}/deletion`, { deleted: !session.deleteAfterUtc, version });
+      await load(true);
+      notice(session.deleteAfterUtc ? "Session restored with its previous owner visibility." : "Session deleted. You can restore it from Deleted for 7 days. Guest access is disabled.");
+      filter.focus();
+    } catch (error) {
+      if (error.status === 409) {
+        try { await load(true); } catch { /* Keep the actionable conflict message. */ }
       }
       notice(error.message, true);
     } finally { saving = false; controls(); }

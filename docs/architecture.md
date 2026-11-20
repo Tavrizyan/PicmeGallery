@@ -71,9 +71,9 @@ sessions/{guestKeyHash}/originals/001.jpg
 sessions/{guestKeyHash}/originals/002.png
 ```
 
-One completed session has one final. JPEG and animated GIF finals use the same public asset ID, `final`; the gallery resolves the physical filename. Originals use three-digit indices and `.jpg`, `.jpeg`, or `.png` extensions. GIF is allowed for the final, not for an original. Existing bytes are served without resizing or transcoding.
+One completed session has one final. JPEG and animated GIF finals use the same public asset ID, `final`; the gallery resolves the physical filename. Originals use three-digit indices and `.jpg`, `.jpeg`, or `.png` extensions. GIF is allowed for the final, not for an original. Original bytes are served without resizing or transcoding. Optional booth-generated browsing images are described below.
 
-All assets must be private and explicitly **Cold**. The gallery rejects a candidate with the wrong tier, MIME type, schema, identifying fields, or original index/count. An Event ID is a non-secret grouping label. Its rule is `^[a-z0-9][a-z0-9_-]{0,63}$`; `anna-david` is valid. The booth snapshots it for the capture. In the current deferred-session workflow, a blank booth event falls back to the local capture date, `yyyy-mm-dd`; the gallery receives the resulting valid label and does not create an event record.
+All source finals/originals must be private and explicitly **Cold**. The gallery rejects a candidate with the wrong tier, MIME type, schema, identifying fields, or original index/count. An Event ID is a non-secret grouping label. Its rule is `^[a-z0-9][a-z0-9_-]{0,63}$`; `anna-david` is valid. The booth snapshots it for the capture. In the current deferred-session workflow, a blank booth event falls back to the local capture date, `yyyy-mm-dd`; the gallery receives the resulting valid label and does not create an event record.
 
 ### Index tags
 
@@ -100,6 +100,31 @@ Event labels are not sufficient to authorize a guest. Do not replace the guest h
 The gallery validates the checksum metadata's shape; it does not download and hash every image on every page request. The booth verifies bytes and reconciles successful/ambiguous uploads. Do not use this metadata as a substitute for storage access control.
 
 The original index must match the filename. Originals must match the final's event and expected count. Discovery deduplicates by original index. If the final exists under an invalid contract, the guest can remain in waiting state; inspect blob properties/tags rather than assuming every waiting response means a transfer is still running.
+
+### Optional browsing images and booth implementation
+
+This is an additive extension to schema version 1. Deploy the gallery first; old booths, unmodified metadata, and existing uploads continue to use original images. No bulk backfill is required. Browsing-image generation stays in PicmeBooth; this gallery does not resize photos or add an Azure processing service.
+
+Implement the following in the booth's existing durable upload queue, reusing its already generated smaller images:
+
+1. Keep every original final/selected photo, filename, identifying tag, checksum, and expected-original count intact. Do not upload discarded retakes. Retain originals indefinitely, apart from explicit admin deletion.
+2. Upload private still JPEG thumbnails and smaller Preview images to these deterministic paths in the same container:
+
+   | Source | Grid thumbnail | Preview |
+   | --- | --- | --- |
+   | `sessions/{hash}/final.jpg` | `sessions/{hash}/thumbnails/final.jpg` | `sessions/{hash}/previews/final.jpg` |
+   | `sessions/{hash}/final.gif` | `sessions/{hash}/thumbnails/final.jpg` | `sessions/{hash}/previews/final.gif` |
+   | `sessions/{hash}/originals/001.jpg` (also `.jpeg`/`.png`) | `sessions/{hash}/thumbnails/001.jpg` | `sessions/{hash}/previews/001.jpg` |
+
+   Preserve aspect ratio and do not upscale. A 512-pixel longest edge for thumbnails and 1,600-pixel longest edge for Preview are suggested starting points; the gallery does not require exact dimensions. Reuse comparable existing outputs. GIF thumbnails use one frame; GIF Preview preserves animation, timing, and looping. Use actual JPEG/GIF bytes with `image/jpeg` / `image/gif` content types. PNG source downloads remain PNG even when browsing versions are JPEG.
+3. Do not label these extra blobs `Kind=Final` or `Kind=Original`, or place them in `originals/`. The gallery discovers only source assets and derives browsing paths; the extra blobs need no index tags. They must remain private. The gallery does not require Cold tier for these derivatives; keep the existing Cold source contract unchanged and choose the derivatives' tier based on observed access costs.
+4. Announce availability with optional lowercase metadata **on the corresponding source blob**: `thumbnailversion=1` only after its thumbnail upload commits, and `previewversion=1` only after its Preview upload commits. Each flag is independent. The path and format are fixed by this table; flags cannot contain arbitrary URLs or blob paths. Keep `schemaversion=1` and all existing metadata. A source without these flags, or with an unknown version, uses its original for browsing without extra existence checks.
+5. For a new source, upload its available derivatives before publishing that source with the flags. Keep final delivery ahead of the selected originals: final derivatives → final source → each selected original's derivatives/source. Optional derivative failures must not block source delivery: publish the source without the missing flag and retain a retry in the queue. Never advertise an incomplete file.
+6. Make retries idempotent. If adding flags after source delivery, merge existing metadata and use the source ETag so concurrent fields are preserved; do not overwrite the original bytes. Validated source metadata can remain cached by the gallery for up to five minutes before a newly added flag is observed.
+7. Keep byte downloads, native file sharing, and ZIPs on the original source. `?view=thumbnail` / `?view=preview` affect inline browsing only; `?download=true` or `?file=true` always selects the original. API descriptions include `thumbnailUrl`, `previewUrl`, and `originalUrl`. Browser viewers fall back to `originalUrl` if an advertised smaller image fails to load. Existing API consumers with only `previewUrl` remain supported.
+8. Verify JPEG and animated GIF finals, PNG originals, partial derivative uploads, interrupted retries, and uploads without either flag. Admin Hide/Delete and guest/owner authorization must cover the same session regardless of image size. Session cleanup removes the entire session prefix, including derivatives.
+
+In PicmeGallery, successful photo-descriptor validation is cached for five minutes (at most 4,096 descriptors per process); missing/invalid photos and authorization records are never cached by this cache. Returning to a gallery or explicitly refreshing still checks current access. Owners' event grids do not rescan on a timer. Phone sharing fetches original bytes only on an explicit save/share tap, then uses a second tap to preserve native share-sheet activation.
 
 ## HTTP surface
 
@@ -130,7 +155,7 @@ Azure Functions was considered but was not selected for this implementation. Thi
 
 ## Current boundaries
 
-Resizing/thumbnails, cloud processing, media/event deletion, multiple administrator accounts/roles, local cleanup policy, and automatic infrastructure provisioning are not implemented here. Event IDs remain grouping labels, never authorization credentials.
+Gallery-side resizing, booth implementation of browsing-image uploads, cloud processing, event deletion, multiple administrator accounts/roles, booth-local cleanup policy, and automatic infrastructure provisioning are not implemented here. The gallery supports optional browsing images and recoverable session deletion. Event IDs remain grouping labels, never authorization credentials.
 
 The gallery requires HTTPS Azure cloud storage. Emulator-only changes were reverted at the owner's request; there is no supported local HTTP storage mode. Running the web app locally against a real private Azure container is supported.
 

@@ -8,7 +8,7 @@ async (page) => {
     const token = 'A'.repeat(43), base = 'http://localhost:5078';
     const jpeg = await page.screenshot({ type: 'jpeg' });
     const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
-    let state = 'ready', originals = ['003.jpg', '001.jpg', '002.jpg'], gifFinal = false, apiError = false, fileError = false;
+    let state = 'ready', originals = ['003.jpg', '001.jpg', '002.jpg'], gifFinal = false, apiError = false, fileError = false, fileRequests = 0;
     const asset = id => ({
       id, bytes: jpeg.length, contentType: id === 'final' && gifFinal ? 'image/gif' : 'image/jpeg',
       fileName: id === 'final' ? `picme-final.${gifFinal ? 'gif' : 'jpg'}` : `picme-original-${id}`,
@@ -19,6 +19,7 @@ async (page) => {
       : route.fulfill({ json: { state, eventId: state === 'waiting' ? null : 'anna-david', expectedOriginals: 3, uploadedOriginals: originals.length,
         final: state === 'waiting' ? null : asset('final'), originals: state === 'waiting' ? [] : originals.map(asset) } }));
     await page.route('**/api/media/**', route => {
+      if (route.request().url().includes('file=true')) fileRequests++;
       if (fileError && route.request().url().includes('file=true')) return route.fulfill({ status: 503 });
       const isGif = gifFinal && new URL(route.request().url()).pathname.endsWith('/final');
       return route.fulfill({ body: isGif ? gif : jpeg, contentType: isGif ? 'image/gif' : 'image/jpeg' });
@@ -35,9 +36,13 @@ async (page) => {
       }, configurable: true });
     });
     const open = platform => page.goto(`${base}/p/${token}${platform ? '?platform=' + platform : ''}`);
-    const readyToShare = () => page.waitForFunction(() => {
-      const button = document.getElementById('share-photo'); return !button.hidden && !button.disabled;
-    });
+    const prepareToShare = async () => {
+      await page.locator('#share-photo').click();
+      await page.waitForFunction(() => {
+        const button = document.getElementById('share-photo');
+        return !button.hidden && !button.disabled && document.getElementById('save-status').textContent.startsWith('Photo ready.');
+      });
+    };
     const results = [];
     await page.setViewportSize({ width: 1440, height: 1000 });
     await open();
@@ -83,8 +88,11 @@ async (page) => {
     for (const platform of ['ios', 'android']) {
       await page.setViewportSize({ width: platform === 'ios' ? 390 : 360, height: 844 });
       await open(platform);
-      await page.locator('#save-final').click();
-      await readyToShare();
+      const beforePreview = fileRequests;
+      await page.locator('#preview-final').click();
+      check(fileRequests === beforePreview, 'Opening mobile Preview does not fetch original bytes');
+      await prepareToShare();
+      check(fileRequests === beforePreview + 1, 'Explicit save prepares original exactly once');
       await page.locator('#share-photo').click();
       const shared = await page.evaluate(() => window.sharedFile);
       check(shared.active && shared.name === 'picme-final.jpg' && shared.type === 'image/jpeg' && shared.size === jpeg.length, 'Original file shared with transient activation');
@@ -94,7 +102,7 @@ async (page) => {
       await page.screenshot({ path: `/tmp/picme-gallery-${platform}.png`, fullPage: true });
       await page.evaluate(() => { window.shareMode = 'cancel'; });
       await page.locator('.save-small').first().click();
-      await readyToShare();
+      await prepareToShare();
       await page.locator('#share-photo').click();
       check(await page.locator('#save-status').textContent() === '', 'Cancellation is silent');
       await page.evaluate(() => { window.shareMode = 'error'; });
@@ -110,13 +118,14 @@ async (page) => {
     fileError = true;
     await open('ios');
     await page.locator('#save-final').click();
+    await page.locator('#share-photo').click();
     await page.waitForFunction(() => document.getElementById('save-status').textContent.includes('couldn’t be prepared'));
     check(await page.locator('#share-photo').isHidden(), 'Failed preparation hides share');
     await page.locator('#close-preview').click();
     fileError = false; gifFinal = true;
     await open('ios');
     await page.locator('#save-final').click();
-    await readyToShare();
+    await prepareToShare();
     await page.locator('#share-photo').click();
     check(await page.evaluate(() => window.sharedFile.type === 'image/gif' && window.sharedFile.name === 'picme-final.gif'), 'GIF preserved for native sharing');
     await page.locator('#close-preview').click();
