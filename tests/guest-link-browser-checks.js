@@ -4,6 +4,7 @@ async (page) => {
   const { createHash } = await import('node:crypto');
   const jpeg = await readFile('tests/fixtures/guest-link-final.jpg');
   const gif = await readFile('tests/fixtures/guest-link-final.gif');
+  const patterned = await readFile('tests/fixtures/guest-link-patterned-final.jpg');
   const wrong = await readFile('tests/fixtures/guest-link-wrong-session.png');
   const context = await page.context().browser().newContext();
   try {
@@ -30,7 +31,7 @@ async (page) => {
         fileReads++;
         if (mode === 'fail') return route.fulfill({ status: 503 });
         if (mode === 'delay') await new Promise(resolve => setTimeout(resolve, 1000));
-        return route.fulfill({ body: mode === 'gif' ? gif : mode === 'wrong' ? wrong : jpeg,
+        return route.fulfill({ body: mode === 'gif' ? gif : mode === 'wrong' ? wrong : mode === 'patterned' ? patterned : jpeg,
           contentType: mode === 'gif' ? 'image/gif' : mode === 'wrong' ? 'image/png' : 'image/jpeg' });
       }
       if (url.pathname.includes('/sessions/')) return route.fulfill({ json: { state: 'ready', eventId: 'share-test', expectedOriginals: 1, uploadedOriginals: 1, final: asset(), originals: [] } });
@@ -69,6 +70,9 @@ async (page) => {
     mode = 'gif'; await owner.reload(); await owner.locator('.photo-preview').click(); await owner.locator('#preview-guest-link').click();
     await owner.locator('#guest-link-url').waitFor({ state: 'visible' });
     check(await owner.locator('#guest-link-url').inputValue() === guestUrl, 'Real animated GIF scan returns the same printed URL');
+    mode = 'patterned'; await owner.reload(); await owner.locator('.photo-preview').click(); await owner.locator('#preview-guest-link').click();
+    await owner.locator('#guest-link-url').waitFor({ state: 'visible' });
+    check(await owner.locator('#guest-link-url').inputValue() === guestUrl, 'Small inverted guest QR on patterned artwork is matched after skipping another session QR');
     mode = 'wrong'; await owner.reload(); await owner.locator('.photo-preview').click(); await owner.locator('#preview-guest-link').click();
     await owner.locator('#retry-guest-url').waitFor({ state: 'visible' });
     check((await owner.locator('#guest-link-status').textContent()).includes('No matching guest QR') &&
@@ -89,6 +93,6 @@ async (page) => {
     await owner.waitForFunction(() => document.getElementById('event-title').textContent === 'Link unavailable');
     check(!await owner.locator('.guest-link-dialog').evaluate(dialog => dialog.open), 'Revoked owner access closes the guest-link dialog');
     check(errors.length === 0, 'No script errors: ' + errors.join(', '));
-    return { passed: ['on-demand original/decoder loading', 'real JPEG with multiple QRs', 'animated GIF', 'session-hash validation', 'exact URL copy/open', 'clipboard fallback', 'memory reuse', 'owner session action', 'guest action hidden', 'retry/cancel/reopen', 'revoked access cleanup', 'responsive dialog/focus'], errors };
+    return { passed: ['on-demand original/decoder loading', 'real JPEG with multiple QRs', 'small/inverted QR on patterned artwork', 'animated GIF', 'session-hash validation', 'exact URL copy/open', 'clipboard fallback', 'memory reuse', 'owner session action', 'guest action hidden', 'retry/cancel/reopen', 'revoked access cleanup', 'responsive dialog/focus'], errors };
   } finally { await context.close(); }
 }
