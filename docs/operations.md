@@ -43,7 +43,7 @@ The token itself never expires, but availability is an operational responsibilit
 3. Keep Azure credentials current and both upload/read paths working. Do not make the container public as a workaround for a failing signer.
 4. Maintain recoverable copies of media/metadata and non-secret deployment configuration. Verify that restored assets still resolve from an old test token.
 
-The gallery cannot recover a token from its hash. If support needs an existing guest link, use the guest's printed QR or the booth's retained protected session record. There is no gallery-side token directory to search or recreate.
+The gallery cannot recover a token from its hash. Owners can use **Copy guest link** to scan the QR from the original final in their browser; the decoded token must hash to that session. The printed QR and booth’s retained protected session record are also sources of an existing guest link. There is no gallery-side token directory to search or recreate.
 
 ## Logs, caching, and access scope
 

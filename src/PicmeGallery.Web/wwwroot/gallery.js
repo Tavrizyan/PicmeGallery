@@ -5,6 +5,7 @@
   const token = ownerSession?.[1] || /^\/p\/([A-Za-z0-9_-]{43})\/?$/.exec(location.pathname)?.[1];
   const galleryUrl = ownerSession ? `/api/event/${token}/sessions/${ownerSession[2]}` : `/api/guest/${token}`;
   if (ownerSession) {
+    byId("session-guest-link").hidden = false;
     const back = byId("event-back"); back.hidden = false; back.href = `/e/${token}`;
   }
   const status = byId("status"), refresh = byId("refresh");
@@ -132,6 +133,10 @@
       if (dialog.open && error.name !== "AbortError") saveStatus.textContent = "Sharing isn’t available here. Download the original, or touch and hold the photo to save it.";
     } finally { sharing = false; shareButton.disabled = false; }
   });
+  byId("session-guest-link").addEventListener("click", event => {
+    const final = assets.get("final");
+    if (ownerSession && final) GuestLinks.open(ownerSession[2], final, event.currentTarget);
+  });
   byId("preview-final").addEventListener("click", event => openPreview("final", event.currentTarget));
   byId("save-final").addEventListener("click", event => openPreview("final", event.currentTarget));
 
@@ -157,6 +162,7 @@
     try {
       const response = await fetch(galleryUrl, { cache: "no-store", signal: controller.signal });
       if (response.status === 404) {
+        GuestLinks.close();
         if (dialog.open) dialog.close();
         assets.clear(); grid.replaceChildren(); byId("final-image").removeAttribute("src");
         byId("final-section").hidden = byId("originals-section").hidden = byId("event-info").hidden = true;

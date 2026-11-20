@@ -59,6 +59,14 @@ Create an event using the **exact Event ID configured in the booth** and a displ
 
 The organizer opens `/e/{ownerToken}` without signing in. The grid displays **finals only**. Preview opens the finished print or animated GIF; **Final** downloads it; **All photos** opens the session’s final and originals using the existing phone-save viewer. **Download all photos (.zip)** streams every owner-visible final and original across all pages, grouped into session folders. It does not load the complete archive into server memory or create a stored ZIP. Two archive requests may run concurrently per app instance; large events remain subject to Azure/Cloudflare request duration, bandwidth, and F1 quotas. Interrupted archives must be downloaded again. Photos still uploading are included only when available at the time each session is read.
 
+### Copy a session’s printed guest link
+
+Owners can choose **Copy guest link** in a final-image Preview or on the session page. The first request reads the original final through the existing authenticated same-origin media endpoint and scans it in the browser. The dialog shows the exact printed QR URL, with **Copy link**, **Open link**, and a manual-copy fallback. Friends receive that session’s final and selected originals; the owner’s event token is never included.
+
+Scanning is entirely local and on demand, with no booth or storage-contract change. The scanner uses the final’s QR, skips unrelated/static codes, and requires the decoded guest token’s SHA-256 hash to match the selected session. JPEG/PNG images and the first frame of GIF finals are supported; PicmeBooth places the delivery QR in every GIF frame. Successful results stay in memory for the current page lifetime. Closing cancels the request/worker; failures offer Retry or downloading the final for manual scanning. There is a 30-second deadline, a 50 MiB file limit, a 12-megapixel/4,096-pixel scan bound, and at most eight QR candidates per scan.
+
+The locally hosted decoder is unmodified **jsQR 1.4.0**, loaded only inside the scan worker. Its Apache-2.0 license is included in [vendor/jsqr/LICENSE](src/PicmeGallery.Web/wwwroot/vendor/jsqr/LICENSE). There are no CDN calls or third-party image uploads. `tests/guest-link-browser-checks.js` uses real multi-QR JPEG/animated GIF fixtures and covers exact-link validation, clipboard fallback, caching, cancellation, retries, revoked owner access, and mobile layout. Live printed-image/iPhone verification remains necessary.
+
 ### Hide sessions from the event owner
 
 In `/admin`, choose **Manage sessions** beside an event. The management view shows finals with visibility badges, **Hide from owner** / **Restore to owner**, and All / Visible / Hidden filters. Admins can preview hidden finals even when the owner link has been revoked.

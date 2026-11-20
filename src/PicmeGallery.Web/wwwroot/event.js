@@ -3,7 +3,7 @@
   const byId = id => document.getElementById(id), status = byId("event-status");
   const token = /^\/e\/([A-Za-z0-9_-]{43})\/?$/.exec(location.pathname)?.[1];
   const grid = byId("event-photos"), dialog = byId("event-preview"), sessions = new Map();
-  let visibilityVersion, nextCursor, busy = false, returnFocus, unavailable = false;
+  let visibilityVersion, nextCursor, busy = false, returnFocus, unavailable = false, previewSession;
   function imageSource(image, url, originalUrl) {
     image.dataset.originalUrl = originalUrl || url; image.src = url;
   }
@@ -14,14 +14,18 @@
   }
   function notice(message, error = false) { status.textContent = message; status.classList.toggle("error", error); }
   function preview(session, trigger) {
+    previewSession = session;
     returnFocus = trigger; imageSource(byId("event-preview-image"), session.final.previewUrl, session.final.originalUrl);
     byId("event-preview-title").textContent = session.final.contentType === "image/gif" ? "Animated moment" : "Finished print";
     byId("preview-final-download").href = session.final.downloadUrl; byId("preview-final-download").download = session.final.fileName;
     byId("preview-session").href = session.sessionPath; byId("event-preview-status").textContent = "";
     dialog.showModal(); document.body.classList.add("preview-open");
   }
+  byId("preview-guest-link").addEventListener("click", event => {
+    if (previewSession) GuestLinks.open(previewSession.sessionId, previewSession.final, event.currentTarget);
+  });
   byId("close-event-preview").addEventListener("click", () => dialog.close());
-  dialog.addEventListener("close", () => { byId("event-preview-image").removeAttribute("src"); document.body.classList.remove("preview-open"); returnFocus?.focus(); });
+  dialog.addEventListener("close", () => { GuestLinks.close(); previewSession = undefined; byId("event-preview-image").removeAttribute("src"); document.body.classList.remove("preview-open"); returnFocus?.focus(); });
   dialog.addEventListener("click", event => {
     if (event.target !== dialog) return;
     const box = dialog.getBoundingClientRect();
